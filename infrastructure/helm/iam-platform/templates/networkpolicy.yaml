@@ -1,0 +1,181 @@
+{{- define "iam.np.ingressRules" -}}
+    {{- if hasKey $.public $.comp }}
+    # ingress controller -> public port
+    - from:
+        - namespaceSelector:
+            {{- toYaml $.np.ingressController.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $.np.ingressController.podSelector | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: {{ get $.public $.comp }}}
+    {{- end }}
+    {{- range $f := $.flows }}
+    {{- if and (eq (index $f 1) $.comp) (get $.enabled (index $f 0)) }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "iam.selectorLabels" (dict "root" $.root "component" (index $f 0)) | nindent 14 }}
+      ports:
+        {{- range (index $f 2) }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if and (eq $.comp "federation-broker") (or $.root.Values.metrics.podAnnotations $.root.Values.metrics.serviceMonitor.enabled) }}
+    # Prometheus -> broker metrics (admin port)
+    - from:
+        - namespaceSelector:
+            {{- toYaml $.np.monitoring.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $.np.monitoring.podSelector | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 8091}
+    {{- end }}
+{{- end -}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . -}}
+{{- $np := .Values.networkPolicy -}}
+{{- /*
+Single source of truth for service-to-service traffic: [from, to, ports].
+Ingress rules of each destination are derived from this table, so the
+egress and ingress sides always match.
+*/ -}}
+{{- $flows := list
+  (list "kratos" "federation-broker" (list 8090))
+  (list "federation-broker" "audit-service" (list 4100))
+  (list "login-consent" "kratos" (list 4433 4434))
+  (list "login-consent" "hydra" (list 4445))
+  (list "login-consent" "identity-service" (list 4000))
+  (list "login-consent" "audit-service" (list 4100))
+  (list "identity-portal" "kratos" (list 4433 4434))
+  (list "identity-portal" "identity-service" (list 4000))
+  (list "identity-portal" "audit-service" (list 4100))
+  (list "admin-console" "hydra" (list 4444 4445))
+  (list "admin-console" "kratos" (list 4433 4434))
+  (list "admin-console" "federation-broker" (list 8091))
+  (list "admin-console" "identity-service" (list 4000))
+  (list "admin-console" "audit-service" (list 4100))
+  (list "identity-service" "kratos" (list 4433 4434))
+  (list "identity-service" "federation-broker" (list 8091))
+  (list "identity-service" "audit-service" (list 4100))
+  (list "demo-web" "hydra" (list 4444))
+  (list "demo-web" "demo-api" (list 5600))
+  (list "demo-web" "audit-service" (list 4100))
+  (list "demo-api" "hydra" (list 4444 4445))
+  (list "demo-api" "audit-service" (list 4100))
+  (list "federation-broker" "fedsim" (list 8070))
+  (list "fedsim" "federation-broker" (list 8090))
+-}}
+{{- /* Ports reachable from the ingress controller (public endpoints only). */ -}}
+{{- $public := dict "kratos" 4433 "hydra" 4444 "federation-broker" 8090 "login-consent" 3000 "identity-portal" 3200 "admin-console" 3100 "demo-web" 5555 "fedsim" 8070 -}}
+{{- $dbUsers := list "kratos" "kratos-courier" "hydra" "federation-broker" "identity-service" "audit-service" "migrate" -}}
+{{- $enabled := dict
+  "kratos" true "hydra" true "federation-broker" true "login-consent" true
+  "identity-portal" true "admin-console" true "identity-service" true "audit-service" true
+  "kratos-courier" .Values.kratos.courier.standalone "migrate" .Values.migrations.enabled
+  "demo-web" .Values.demo.enabled "demo-api" .Values.demo.enabled
+  "fedsim" .Values.testFederation.enabled
+-}}
+# Default deny (ingress + egress) for every pod of this release.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iam.res" (dict "root" . "name" "default-deny") }}
+  labels:
+    {{- include "iam.labels" (dict "root" . "component" "networkpolicy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "iam.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+{{- range $comp := keys $enabled | sortAlpha }}
+{{- if get $enabled $comp }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iam.res" (dict "root" $root "name" (printf "np-%s" $comp)) }}
+  labels:
+    {{- include "iam.labels" (dict "root" $root "component" "networkpolicy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iam.selectorLabels" (dict "root" $root "component" $comp) | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  {{- $ing := include "iam.np.ingressRules" (dict "root" $root "np" $np "comp" $comp "public" $public "flows" $flows "enabled" $enabled) }}
+  {{- if trim $ing }}
+  ingress:
+    {{- $ing }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            {{- toYaml $np.dns.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $np.dns.podSelector | nindent 12 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- range $f := $flows }}
+    {{- if and (eq (index $f 0) $comp) (get $enabled (index $f 1)) }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "iam.selectorLabels" (dict "root" $root "component" (index $f 1)) | nindent 14 }}
+      ports:
+        {{- range (index $f 2) }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if has $comp $dbUsers }}
+    # PostgreSQL
+    - {{- with $root.Values.postgresql.networkPeers }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $root.Values.postgresql.port }}}
+    {{- end }}
+    {{- if eq $comp "federation-broker" }}
+    # SPID/CIE federation (trust anchors, OPs) over HTTPS, public internet only
+    - to:
+        - ipBlock:
+            cidr: {{ $np.brokerInternetEgress.cidr }}
+            {{- with $np.brokerInternetEgress.except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range $np.brokerInternetEgress.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- if or (eq $comp "kratos-courier") (and (eq $comp "kratos") (not $root.Values.kratos.courier.standalone)) }}
+    # SMTP relay
+    - {{- with $np.smtp.networkPeers }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $np.smtp.port }}}
+    {{- end }}
+    {{- if $root.Values.observability.otel.endpoint }}
+    # OTLP collector
+    - {{- with $root.Values.observability.otel.networkPeers }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $root.Values.observability.otel.port }}}
+    {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

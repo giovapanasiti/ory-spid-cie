@@ -1,0 +1,37 @@
+{{- /*
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+TEST ONLY — fedsim simulates the SPID/CIE federation (fake Trust Anchor and
+fake identity providers that log in ANY identity on demand). NEVER enable it
+in production or in any environment reachable by real users.
+Rendered only with testFederation.enabled=true AND
+testFederation.iUnderstandThisIsTestOnly=true.
+The broker must then also run with broker.env=development and private
+network/http allowances (not provided by this chart's production defaults).
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+*/ -}}
+{{- if .Values.testFederation.enabled }}
+{{- if not .Values.testFederation.iUnderstandThisIsTestOnly }}
+{{- fail "testFederation.enabled=true requires testFederation.iUnderstandThisIsTestOnly=true. fedsim is a TEST-ONLY simulator and must never run in production." }}
+{{- end }}
+{{- $v := merge (dict "replicaCount" 1) .Values.testFederation -}}
+{{- $env := printf `- name: FEDSIM_I_UNDERSTAND_THIS_IS_TEST_ONLY
+  value: "true"
+- name: FEDSIM_INTERNAL_URL
+  value: "http://%s:8070"
+- name: FEDSIM_PUBLIC_URL
+  value: "https://%s"
+- name: FEDSIM_RP_ENTITIES
+  value: "%s/rp/spid,%s/rp/cie"
+- name: FEDSIM_KEY_FILE
+  value: /data/fedsim-keys.json` (include "iam.res" (dict "root" . "name" "fedsim")) .Values.testFederation.host (include "iam.url.brokerPublic" .) (include "iam.url.brokerPublic" .) -}}
+{{ include "iam.workload" (dict "root" . "name" "fedsim" "v" $v "uid" 65532 "recreate" true
+    "image" (include "iam.image" (dict "root" . "img" .Values.images.fedsim))
+    "ports" (list (dict "name" "http" "port" 8070))
+    "env" $env
+    "probes" (include "iam.httpProbes" (dict "port" "http" "live" "/healthz" "ready" "/healthz"))
+    "volumes" "- name: data\n  emptyDir: {sizeLimit: 16Mi}"
+    "volumeMounts" "- name: data\n  mountPath: /data"
+    "podAnnotations" (dict "iam.enpam.it/test-only" "true")) }}
+---
+{{ include "iam.service" (dict "root" . "name" "fedsim" "component" "fedsim" "ports" (list (dict "name" "http" "port" 8070))) }}
+{{- end }}

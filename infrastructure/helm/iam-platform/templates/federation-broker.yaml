@@ -1,0 +1,60 @@
+{{- $v := .Values.broker -}}
+{{- $secret := include "iam.secretName" (dict "root" . "v" $v) -}}
+{{- $image := include "iam.image" (dict "root" . "img" .Values.images.broker) -}}
+{{- $kratosCb := printf "%s/self-service/methods/oidc/callback" (include "iam.https" .Values.hosts.kratos) -}}
+{{- $env := list -}}
+{{- $env = append $env (dict "name" "BROKER_ENV" "value" $v.env) -}}
+{{- $env = append $env (dict "name" "BROKER_PUBLIC_URL" "value" (include "iam.https" .Values.hosts.broker)) -}}
+{{- $env = append $env (dict "name" "BROKER_INTERNAL_URL" "value" (include "iam.url.brokerPublic" .)) -}}
+{{- $env = append $env (dict "name" "BROKER_FACADE_CLIENT_ID" "value" "kratos") -}}
+{{- $env = append $env (dict "name" "BROKER_FACADE_REDIRECT_URIS" "value" (printf "%s,%s/spid,%s/cie" $kratosCb $kratosCb $kratosCb)) -}}
+{{- $env = append $env (dict "name" "BROKER_ALLOW_INSECURE_HTTP" "value" "false") -}}
+{{- $env = append $env (dict "name" "BROKER_ALLOW_PRIVATE_NETWORKS" "value" "false") -}}
+{{- $env = append $env (dict "name" "BROKER_COOKIE_SECURE" "value" "true") -}}
+{{- $env = append $env (dict "name" "BROKER_AUTOGENERATE_KEYS" "value" ($v.autogenerateKeys | toString)) -}}
+{{- $env = append $env (dict "name" "BROKER_ATTRIBUTE_TTL_SECONDS" "value" ($v.attributeTtlSeconds | toString)) -}}
+{{- $env = append $env (dict "name" "BROKER_RETENTION_DAYS" "value" ($v.retentionDays | toString)) -}}
+{{- $env = append $env (dict "name" "BROKER_RATE_LIMIT_RPS" "value" ($v.rateLimit.rps | toString)) -}}
+{{- $env = append $env (dict "name" "BROKER_RATE_LIMIT_BURST" "value" ($v.rateLimit.burst | toString)) -}}
+{{- $env = append $env (dict "name" "AUDIT_URL" "value" (printf "%s/events" (include "iam.url.audit" .))) -}}
+{{- with $v.outboundHostAllowlist }}{{- $env = append $env (dict "name" "BROKER_OUTBOUND_HOST_ALLOWLIST" "value" .) -}}{{- end -}}
+{{- if $v.bootstrap.configMapName }}{{- $env = append $env (dict "name" "BROKER_BOOTSTRAP_FILE" "value" "/etc/config/federation/bootstrap.json") -}}{{- end -}}
+{{- $envYaml := toYaml $env -}}
+{{- range $pair := list (list "BROKER_DATABASE_URL" "BROKER_DATABASE_URL") (list "BROKER_SEAL_KEYS" "BROKER_SEAL_KEYS") (list "BROKER_ADMIN_TOKEN" "BROKER_ADMIN_TOKEN") (list "BROKER_INTERNAL_TOKEN" "BROKER_INTERNAL_TOKEN") (list "BROKER_FACADE_CLIENT_SECRET" "BROKER_FACADE_CLIENT_SECRET") (list "AUDIT_TOKEN" "AUDIT_INGEST_TOKEN") }}
+{{- $envYaml = printf "%s\n%s" $envYaml (include "iam.secretEnv" (dict "env" (index $pair 0) "secret" $secret "key" (index $pair 1))) -}}
+{{- end -}}
+{{- $mounts := "" -}}
+{{- $volumes := "" -}}
+{{- if $v.bootstrap.configMapName }}
+{{- $mounts = `
+- name: bootstrap
+  mountPath: /etc/config/federation
+  readOnly: true` -}}
+{{- $volumes = printf `
+- name: bootstrap
+  configMap:
+    name: %s
+    items:
+      - key: %s
+        path: bootstrap.json` $v.bootstrap.configMapName $v.bootstrap.key -}}
+{{- end -}}
+{{- $ann := dict -}}
+{{- if .Values.metrics.podAnnotations }}
+{{- $ann = dict "prometheus.io/scrape" "true" "prometheus.io/port" "8091" "prometheus.io/path" "/metrics" -}}
+{{- end -}}
+{{- $_ := required "hosts.broker is required" .Values.hosts.broker -}}
+{{ include "iam.workload" (dict "root" . "name" "federation-broker" "v" $v "image" $image "uid" 65532
+    "ports" (list (dict "name" "public" "port" 8090) (dict "name" "admin" "port" 8091))
+    "env" $envYaml
+    "probes" (include "iam.httpProbes" (dict "port" "public" "live" "/healthz" "ready" "/readyz"))
+    "volumes" $volumes "volumeMounts" $mounts "podAnnotations" $ann) }}
+---
+# Public endpoints (OIDC facade for Kratos, SPID/CIE RP entity configuration, callbacks).
+{{ include "iam.service" (dict "root" . "name" "federation-broker" "component" "federation-broker" "ports" (list (dict "name" "public" "port" 8090))) }}
+---
+# Internal only (admin API, internal API for identity-service, /metrics). Never exposed by an Ingress.
+{{ include "iam.service" (dict "root" . "role" "admin" "name" "federation-broker-admin" "component" "federation-broker" "ports" (list (dict "name" "admin" "port" 8091))) }}
+{{- if .Values.migrations.enabled }}
+---
+{{ include "iam.migrationJob" (dict "root" . "name" "federation-broker" "image" $image "uid" 65532 "args" (list "-migrate") "env" $envYaml) }}
+{{- end }}

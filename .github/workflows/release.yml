@@ -1,0 +1,127 @@
+# Manual release build.
+#
+# PUBLISHING REQUIRES EXPLICIT AUTHORIZATION per the ENPAM Change Management
+# procedure. By default (publish=false) images are only built locally on the
+# runner and never pushed. Pushing to GHCR happens only when publish=true AND
+# the "release" environment approval (required reviewers, configured in the
+# repository settings) is granted. Deployment is out of scope of this workflow.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version tag (semver, e.g. 1.2.3)"
+        required: true
+        type: string
+      publish:
+        description: "Push images to GHCR (requires approval of the 'release' environment)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check version format
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid version: must be semver (e.g. 1.2.3)"; exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.image }} (no push)
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: node
+            dockerfile: infrastructure/docker/Dockerfile.node
+            target: ""
+          - image: federation-broker
+            dockerfile: infrastructure/docker/Dockerfile.broker
+            target: broker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          tags: iam/${{ matrix.image }}:${{ inputs.version }}
+          load: true
+          push: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: iam/${{ matrix.image }}:${{ inputs.version }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  publish:
+    name: Publish ${{ matrix.image }} to GHCR
+    needs: build
+    # Only on explicit request, and only from main or a version tag.
+    if: inputs.publish && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release # protected environment: required reviewers must approve
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: node
+            dockerfile: infrastructure/docker/Dockerfile.node
+            target: ""
+          - image: federation-broker
+            dockerfile: infrastructure/docker/Dockerfile.broker
+            target: broker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ inputs.version }}
+            type=sha,format=long
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+          provenance: mode=max
+          sbom: true

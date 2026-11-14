@@ -1,0 +1,303 @@
+# Local development stack. Start with `make dev` (runs `make setup` first).
+# Admin APIs (Kratos :4434, Hydra :4445, broker :8091) are NOT published to the host.
+name: iam
+
+x-node: &node
+  image: iam/node:dev
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  environment: &nodeenv
+    LOG_LEVEL: info
+    AUDIT_URL: http://audit-service:4100/events
+    AUDIT_TOKEN: ${AUDIT_INGEST_TOKEN}
+    SECURE_COOKIES: "false"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KRATOS_DB_PASSWORD: ${KRATOS_DB_PASSWORD}
+      HYDRA_DB_PASSWORD: ${HYDRA_DB_PASSWORD}
+      BROKER_DB_PASSWORD: ${BROKER_DB_PASSWORD}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres && psql -U postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='audit'\" | grep -q 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:8025:8025"]
+
+  # ------------------------------------------------------------------ Ory
+  kratos-migrate:
+    image: oryd/kratos:v26.2.0
+    command: migrate sql up -e --yes
+    environment:
+      DSN: postgres://kratos:${KRATOS_DB_PASSWORD}@postgres:5432/kratos?sslmode=disable&max_conns=20
+    depends_on: { postgres: { condition: service_healthy } }
+
+  kratos:
+    image: oryd/kratos:v26.2.0
+    restart: unless-stopped
+    command: serve -c /etc/config/kratos/kratos.yml -c /etc/config/kratos-secrets/kratos.secrets.yml --dev --watch-courier
+    environment:
+      DSN: postgres://kratos:${KRATOS_DB_PASSWORD}@postgres:5432/kratos?sslmode=disable&max_conns=20
+    volumes:
+      - ../../config/kratos:/etc/config/kratos:ro
+      - ./dev-secrets:/etc/config/kratos-secrets:ro
+    ports: ["127.0.0.1:4433:4433"]
+    depends_on:
+      kratos-migrate: { condition: service_completed_successfully }
+      federation-broker: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4434/admin/health/ready"]
+      interval: 3s
+      retries: 40
+
+  hydra-migrate:
+    image: oryd/hydra:v26.2.0
+    command: migrate sql up -e --yes
+    environment:
+      DSN: postgres://hydra:${HYDRA_DB_PASSWORD}@postgres:5432/hydra?sslmode=disable&max_conns=20
+    depends_on: { postgres: { condition: service_healthy } }
+
+  hydra:
+    image: oryd/hydra:v26.2.0
+    restart: unless-stopped
+    command: serve all -c /etc/config/hydra/hydra.yml -c /etc/config/hydra-secrets/hydra.secrets.yml --dev
+    environment:
+      DSN: postgres://hydra:${HYDRA_DB_PASSWORD}@postgres:5432/hydra?sslmode=disable&max_conns=20
+    volumes:
+      - ../../config/hydra:/etc/config/hydra:ro
+      - ./dev-secrets:/etc/config/hydra-secrets:ro
+    ports: ["127.0.0.1:4444:4444"]
+    depends_on:
+      hydra-migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4445/health/ready"]
+      interval: 3s
+      retries: 40
+
+  # ----------------------------------------------------- federation (Go)
+  federation-broker:
+    build: { context: ../.., dockerfile: infrastructure/docker/Dockerfile.broker, target: broker }
+    image: iam/federation-broker:dev
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      BROKER_ENV: development
+      BROKER_PUBLIC_URL: http://localhost:8090
+      BROKER_INTERNAL_URL: http://federation-broker:8090
+      BROKER_DATABASE_URL: postgres://broker:${BROKER_DB_PASSWORD}@postgres:5432/federation?sslmode=disable
+      BROKER_SEAL_KEYS: ${BROKER_SEAL_KEYS}
+      BROKER_ADMIN_TOKEN: ${BROKER_ADMIN_TOKEN}
+      BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN}
+      BROKER_FACADE_CLIENT_ID: kratos
+      BROKER_FACADE_CLIENT_SECRET: ${BROKER_FACADE_CLIENT_SECRET}
+      BROKER_FACADE_REDIRECT_URIS: http://localhost:4433/self-service/methods/oidc/callback,http://localhost:4433/self-service/methods/oidc/callback/spid,http://localhost:4433/self-service/methods/oidc/callback/cie
+      BROKER_ALLOW_INSECURE_HTTP: "true"
+      BROKER_ALLOW_PRIVATE_NETWORKS: "true"
+      BROKER_COOKIE_SECURE: "false"
+      BROKER_BOOTSTRAP_FILE: /etc/config/federation/bootstrap.local.json
+      AUDIT_URL: http://audit-service:4100/events
+      AUDIT_TOKEN: ${AUDIT_INGEST_TOKEN}
+    volumes:
+      - ../../config/federation:/etc/config/federation:ro
+    ports: ["127.0.0.1:8090:8090"]
+    depends_on: { postgres: { condition: service_healthy } }
+    healthcheck:
+      test: ["CMD", "/broker", "-healthcheck"]
+      interval: 3s
+      retries: 40
+
+  # LOCAL TEST federation (Trust Anchor + SPID/CIE OPs). Never deploy outside dev/CI.
+  fedsim:
+    build: { context: ../.., dockerfile: infrastructure/docker/Dockerfile.broker, target: fedsim }
+    image: iam/fedsim:dev
+    restart: unless-stopped
+    environment:
+      FEDSIM_I_UNDERSTAND_THIS_IS_TEST_ONLY: "true"
+      FEDSIM_INTERNAL_URL: http://fedsim:8070
+      FEDSIM_PUBLIC_URL: http://localhost:8070
+      FEDSIM_RP_ENTITIES: http://federation-broker:8090/rp/spid,http://federation-broker:8090/rp/cie
+      FEDSIM_KEY_FILE: /data/fedsim-keys.json
+    volumes: [fedsim:/data]
+    ports: ["127.0.0.1:8070:8070"]
+    healthcheck:
+      test: ["CMD", "/fedsim", "-healthcheck"]
+      interval: 3s
+      retries: 40
+
+  # ------------------------------------------------ TypeScript services
+  identity-service:
+    <<: *node
+    command: ["node", "services/identity-service/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      DATABASE_URL: postgres://identity:${IDENTITY_DB_PASSWORD}@postgres:5432/identity
+      INTERNAL_API_TOKEN: ${IDENTITY_SERVICE_TOKEN}
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      BROKER_ADMIN_URL: http://federation-broker:8091
+      BROKER_INTERNAL_TOKEN: ${BROKER_INTERNAL_TOKEN}
+      FIELD_SEAL_KEYS: ${IDENTITY_FIELD_SEAL_KEYS}
+      LOOKUP_HMAC_KEY: ${IDENTITY_LOOKUP_HMAC_KEY}
+    depends_on: { postgres: { condition: service_healthy } }
+    healthcheck: &nodehealth
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      start_interval: 2s
+      start_period: 60s
+      retries: 5
+
+  audit-service:
+    <<: *node
+    command: ["node", "services/audit-service/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "4100"
+      DATABASE_URL: postgres://audit:${AUDIT_DB_PASSWORD}@postgres:5432/audit
+      AUDIT_INGEST_TOKEN: ${AUDIT_INGEST_TOKEN}
+      AUDIT_READ_TOKEN: ${AUDIT_READ_TOKEN}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
+    depends_on: { postgres: { condition: service_healthy } }
+    healthcheck: *nodehealth
+
+  login-consent:
+    <<: *node
+    command: ["node", "apps/login-consent/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "3000"
+      PUBLIC_URL: http://localhost:4455
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_BROWSER_URL: http://localhost:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      HYDRA_ADMIN_URL: http://hydra:4445
+      IDENTITY_SERVICE_URL: http://identity-service:4000
+      IDENTITY_SERVICE_TOKEN: ${IDENTITY_SERVICE_TOKEN}
+      COOKIE_SEAL_KEYS: ${LOGIN_COOKIE_SEAL_KEYS}
+      CSRF_SECRET: ${LOGIN_CSRF_SECRET}
+    ports: ["127.0.0.1:4455:3000"]
+    depends_on:
+      kratos: { condition: service_healthy }
+      hydra: { condition: service_healthy }
+      identity-service: { condition: service_healthy }
+    healthcheck: *nodehealth
+
+  identity-portal:
+    <<: *node
+    command: ["node", "apps/identity-portal/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "3200"
+      PUBLIC_URL: http://localhost:3200
+      LOGIN_UI_URL: http://localhost:4455
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_BROWSER_URL: http://localhost:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      IDENTITY_SERVICE_URL: http://identity-service:4000
+      IDENTITY_SERVICE_TOKEN: ${IDENTITY_SERVICE_TOKEN}
+      CSRF_SECRET: ${PORTAL_CSRF_SECRET}
+    ports: ["127.0.0.1:3200:3200"]
+    depends_on: { kratos: { condition: service_healthy }, identity-service: { condition: service_healthy } }
+    healthcheck: *nodehealth
+
+  admin-console:
+    <<: *node
+    command: ["node", "apps/admin-console/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "3100"
+      PUBLIC_URL: http://localhost:3100
+      OIDC_ISSUER: http://localhost:4444/
+      OIDC_INTERNAL_URL: http://hydra:4444
+      OIDC_CLIENT_ID: admin-console
+      OIDC_CLIENT_SECRET: ${ADMIN_OIDC_CLIENT_SECRET}
+      ADMIN_REQUIRED_LOA: ${ADMIN_REQUIRED_LOA:-}
+      ADMIN_BOOTSTRAP_EMAILS: ${ADMIN_BOOTSTRAP_EMAILS}
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      HYDRA_ADMIN_URL: http://hydra:4445
+      IDENTITY_SERVICE_URL: http://identity-service:4000
+      IDENTITY_SERVICE_TOKEN: ${IDENTITY_SERVICE_TOKEN}
+      BROKER_ADMIN_URL: http://federation-broker:8091
+      BROKER_ADMIN_TOKEN: ${BROKER_ADMIN_TOKEN}
+      AUDIT_READ_URL: http://audit-service:4100
+      AUDIT_READ_TOKEN: ${AUDIT_READ_TOKEN}
+      COOKIE_SEAL_KEYS: ${ADMIN_COOKIE_SEAL_KEYS}
+      CSRF_SECRET: ${ADMIN_CSRF_SECRET}
+    ports: ["127.0.0.1:3100:3100"]
+    depends_on: { hydra: { condition: service_healthy }, identity-service: { condition: service_healthy } }
+    healthcheck: *nodehealth
+
+  demo-api:
+    <<: *node
+    command: ["node", "services/demo-api/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "5600"
+      OAUTH2_ISSUER: http://localhost:4444/
+      OAUTH2_JWKS_URL: http://hydra:4444/.well-known/jwks.json
+      OAUTH2_AUDIENCE: demo-api
+      HYDRA_ADMIN_URL: http://hydra:4445
+      ALWAYS_INTROSPECT: "true"
+    ports: ["127.0.0.1:5600:5600"]
+    depends_on: { hydra: { condition: service_healthy } }
+    healthcheck: *nodehealth
+
+  demo-web:
+    <<: *node
+    command: ["node", "apps/demo-web/dist/main.js"]
+    environment:
+      <<: *nodeenv
+      PORT: "5555"
+      PUBLIC_URL: http://localhost:5580
+      OIDC_ISSUER: http://localhost:4444/
+      OIDC_INTERNAL_URL: http://hydra:4444
+      OIDC_CLIENT_ID: demo-web
+      OIDC_CLIENT_SECRET: ${DEMO_OIDC_CLIENT_SECRET}
+      API_URL: http://demo-api:5600
+      CSRF_SECRET: ${DEMO_CSRF_SECRET}
+      ALLOW_INSECURE_HTTP: "true"
+    ports: ["127.0.0.1:5580:5555"]
+    depends_on: { hydra: { condition: service_healthy } }
+    healthcheck: *nodehealth
+
+  # ---------------------------------------------- one-shot dev seeding
+  seed:
+    image: node:22-alpine
+    profiles: [seed]
+    command: ["node", "/scripts/seed-dev.mjs"]
+    volumes: [../../scripts:/scripts:ro]
+    environment:
+      HYDRA_ADMIN_URL: http://hydra:4445
+      KRATOS_ADMIN_URL: http://kratos:4434
+      BROKER_ADMIN_URL: http://federation-broker:8091
+      BROKER_ADMIN_TOKEN: ${BROKER_ADMIN_TOKEN}
+      IDENTITY_SERVICE_URL: http://identity-service:4000
+      IDENTITY_SERVICE_TOKEN: ${IDENTITY_SERVICE_TOKEN}
+      FEDSIM_URL: http://fedsim:8070
+      ADMIN_OIDC_CLIENT_SECRET: ${ADMIN_OIDC_CLIENT_SECRET}
+      DEMO_OIDC_CLIENT_SECRET: ${DEMO_OIDC_CLIENT_SECRET}
+      DEMO_M2M_CLIENT_SECRET: ${DEMO_M2M_CLIENT_SECRET}
+      DEV_ADMIN_EMAIL: ${DEV_ADMIN_EMAIL}
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD}
+
+volumes:
+  pgdata:
+  fedsim:

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Errore di autenticazione</title>
+<link rel="stylesheet" href="/static/broker.css">
+</head>
+<body>
+<main class="card">
+  <h1>Autenticazione non completata</h1>
+  <p>{{.Message}}</p>
+  <p class="meta">Codice / code: <code>{{.Reason}}</code> · Riferimento / reference: <code>{{.CorrelationID}}</code></p>
+</main>
+</body>
+</html>

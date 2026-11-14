@@ -1,0 +1,64 @@
+# Staging overrides: helm upgrade --install iam infrastructure/helm/iam-platform \
+#   -n iam-staging -f infrastructure/helm/iam-platform/values-staging.yaml
+# Secrets must exist beforehand (see values.yaml "secrets"). Staging must use
+# its own secrets and database, never production ones.
+hosts:
+  login: login.staging.example.it
+  kratos: auth.staging.example.it
+  hydra: oauth.staging.example.it
+  broker: spid.staging.example.it
+  portal: account.staging.example.it
+  admin: admin.staging.example.it
+  demo: demo.staging.example.it
+cookieDomain: staging.example.it
+
+images:
+  broker:
+    repository: registry.example.it/iam/federation-broker
+    tag: staging
+  node:
+    repository: registry.example.it/iam/node
+    tag: staging
+
+secrets:
+  existingSecret: iam-platform-secrets
+
+ingress:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  tlsSecretName: wildcard-staging-example-it-tls
+
+postgresql:
+  networkPeers:
+    - ipBlock: {cidr: 10.20.30.0/24}
+
+logLevel: debug
+
+kratos:
+  replicaCount: 1
+  smtp:
+    fromAddress: no-reply@staging.example.it
+    fromName: IAM Platform (staging)
+  pdb: {enabled: false}
+hydra:
+  replicaCount: 1
+  pdb: {enabled: false}
+broker:
+  replicaCount: 1
+  pdb: {enabled: false}
+loginConsent: {replicaCount: 1, pdb: {enabled: false}}
+identityPortal: {replicaCount: 1, pdb: {enabled: false}}
+adminConsole:
+  replicaCount: 1
+  pdb: {enabled: false}
+  ingressAnnotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+identityService: {replicaCount: 1, pdb: {enabled: false}}
+auditService: {replicaCount: 1, pdb: {enabled: false}}
+
+demo:
+  enabled: true
+
+metrics:
+  serviceMonitor:
+    enabled: true

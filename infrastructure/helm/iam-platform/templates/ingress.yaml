@@ -1,0 +1,61 @@
+{{- define "iam.ingress" -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "iam.res" (dict "root" .root "name" .name) }}
+  labels:
+    {{- include "iam.labels" (dict "root" .root "component" "ingress") | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .root.Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  tls:
+    {{- range .routes }}
+    - hosts: [{{ .host | quote }}]
+      secretName: {{ $.root.Values.ingress.tlsSecretName | default (printf "%s-tls" (.host | replace "." "-")) }}
+    {{- end }}
+  rules:
+    {{- range .routes }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "iam.res" (dict "root" $.root "name" .svc) }}
+                port:
+                  number: {{ .port }}
+    {{- end }}
+{{- end }}
+{{- /*
+Only PUBLIC endpoints are routed. Admin ports (Kratos 4434, Hydra 4445,
+broker 8091) and internal services (identity-service, audit-service, demo-api)
+are deliberately absent.
+*/ -}}
+{{- if .Values.ingress.enabled }}
+{{- $root := . -}}
+{{- $h := .Values.hosts -}}
+{{- $routes := list
+  (dict "host" $h.login "svc" "login-consent" "port" 3000)
+  (dict "host" $h.kratos "svc" "kratos-public" "port" 4433)
+  (dict "host" $h.hydra "svc" "hydra-public" "port" 4444)
+  (dict "host" $h.broker "svc" "federation-broker" "port" 8090)
+  (dict "host" $h.portal "svc" "identity-portal" "port" 3200)
+-}}
+{{- if .Values.demo.enabled }}
+{{- $routes = append $routes (dict "host" $h.demo "svc" "demo-web" "port" 5555) -}}
+{{- end }}
+{{- if .Values.testFederation.enabled }}
+{{- $routes = append $routes (dict "host" .Values.testFederation.host "svc" "fedsim" "port" 8070) -}}
+{{- end }}
+{{ include "iam.ingress" (dict "root" $root "name" "public" "routes" $routes "annotations" .Values.ingress.annotations) }}
+---
+# Dedicated Ingress for the admin console so access can be restricted
+# (adminConsole.ingressAnnotations, e.g. nginx whitelist-source-range).
+{{ include "iam.ingress" (dict "root" $root "name" "admin-console" "routes" (list (dict "host" $h.admin "svc" "admin-console" "port" 3100)) "annotations" (merge (dict) .Values.adminConsole.ingressAnnotations .Values.ingress.annotations)) }}
+{{- end }}

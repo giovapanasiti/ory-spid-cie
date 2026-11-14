@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1.7
+# One image for all TypeScript services/apps; the command selects the entrypoint.
+FROM node:22.22-alpine AS build
+WORKDIR /src
+COPY package.json package-lock.json tsconfig.base.json tsconfig.build.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/auth-sdk/package.json packages/auth-sdk/
+COPY packages/ui/package.json packages/ui/
+COPY services/identity-service/package.json services/identity-service/
+COPY services/audit-service/package.json services/audit-service/
+COPY services/demo-api/package.json services/demo-api/
+COPY apps/login-consent/package.json apps/login-consent/
+COPY apps/identity-portal/package.json apps/identity-portal/
+COPY apps/admin-console/package.json apps/admin-console/
+COPY apps/demo-web/package.json apps/demo-web/
+COPY tests/e2e/package.json tests/e2e/
+RUN npm ci --no-audit --no-fund --workspaces --include-workspace-root --ignore-scripts
+COPY packages packages
+COPY services/identity-service services/identity-service
+COPY services/audit-service services/audit-service
+COPY services/demo-api services/demo-api
+COPY apps apps
+RUN npm run build && npm prune --omit=dev --workspaces --include-workspace-root --ignore-scripts \
+ && find . -name "*.test.*" -path "*/dist/*" -delete
+
+FROM node:22.22-alpine
+ENV NODE_ENV=production
+RUN apk add --no-cache tini && addgroup -S app && adduser -S -G app -u 10001 app
+WORKDIR /app
+COPY --from=build --chown=root:root /src/node_modules node_modules
+COPY --from=build --chown=root:root /src/packages packages
+COPY --from=build --chown=root:root /src/services services
+COPY --from=build --chown=root:root /src/apps apps
+COPY --from=build --chown=root:root /src/package.json package.json
+USER 10001:10001
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "apps/login-consent/dist/main.js"]

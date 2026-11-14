@@ -1,0 +1,11 @@
+:root { --fg:#17324d; --bg:#f5f7fa; --accent:#0066cc; --muted:#5c6f82; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: system-ui, -apple-system, "Titillium Web", sans-serif; background:var(--bg); color:var(--fg); }
+.card { max-width: 32rem; margin: 3rem auto; background:#fff; padding:2rem; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+h1 { font-size:1.4rem; margin-top:0; }
+.providers { list-style:none; padding:0; margin:1rem 0; display:grid; gap:.5rem; }
+.providers button { width:100%; display:flex; gap:.75rem; align-items:center; padding:.75rem 1rem; border:1px solid #c5d0db; border-radius:4px; background:#fff; color:var(--fg); font-size:1rem; cursor:pointer; text-align:left; }
+.providers button:hover, .providers button:focus { border-color:var(--accent); outline:2px solid var(--accent); }
+button.secondary { background:none; border:none; color:var(--accent); text-decoration:underline; cursor:pointer; padding:0; font-size:.95rem; }
+.meta { color:var(--muted); font-size:.85rem; }
+code { background:#eef2f6; padding:0 .25rem; border-radius:3px; }

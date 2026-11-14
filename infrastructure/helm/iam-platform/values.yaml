@@ -1,0 +1,370 @@
+# =============================================================================
+# iam-platform — default values (production-oriented, secure defaults).
+#
+# This chart NEVER contains secret values. Every secret is read from Kubernetes
+# Secrets that you create out-of-band (External Secrets Operator, Sealed
+# Secrets, Vault Agent, ...) BEFORE installing the chart. See "secrets" below
+# for the required keys and README.md for the Ory overlay file templates.
+#
+# Deployments must follow the ENPAM Change Management and Secure Development
+# procedures: installing/upgrading this chart in a shared environment requires
+# the approvals defined there.
+# =============================================================================
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Public hostnames (all served over HTTPS through the Ingress) -----------
+hosts:
+  login: login.example.it        # login-consent UI (Hydra login/consent + Kratos flows UI)
+  kratos: auth.example.it        # Kratos public API (4433)
+  hydra: oauth.example.it        # Hydra public API / OIDC issuer (4444)
+  broker: spid.example.it        # federation broker public endpoints (8090) — SPID/CIE RP entity
+  portal: account.example.it     # identity-portal (self-service account)
+  admin: admin.example.it        # admin-console (restrict with the admin ingress annotations)
+  demo: demo.example.it          # demo-web (only when demo.enabled)
+
+# Parent domain shared by the hosts above. Kratos session/CSRF cookies are set
+# for this domain so login-consent and identity-portal can forward them.
+# Leave empty to use host-only cookies on hosts.kratos (requires same host).
+cookieDomain: example.it
+
+# --- Images --------------------------------------------------------------------
+# Prefer pinning by digest in production (digest wins over tag when set).
+images:
+  pullPolicy: IfNotPresent
+  pullSecrets: []                # e.g. [{name: ghcr-pull}]
+  kratos:
+    repository: oryd/kratos
+    tag: v26.2.0
+    digest: ""
+  hydra:
+    repository: oryd/hydra
+    tag: v26.2.0
+    digest: ""
+  # infrastructure/docker/Dockerfile.broker, target "broker" (distroless, uid 65532)
+  broker:
+    repository: registry.example.it/iam/federation-broker
+    tag: ""                      # defaults to .Chart.AppVersion
+    digest: ""
+  # infrastructure/docker/Dockerfile.node — ONE image for every TypeScript
+  # service/app; the container args select the entrypoint (uid 10001).
+  node:
+    repository: registry.example.it/iam/node
+    tag: ""                      # defaults to .Chart.AppVersion
+    digest: ""
+  # TEST ONLY (Dockerfile.broker target "fedsim"). Used only when testFederation.enabled.
+  fedsim:
+    repository: registry.example.it/iam/fedsim
+    tag: ""
+    digest: ""
+
+# --- Secrets (REQUIRED, created out-of-band) -----------------------------------
+# One Secret holds all keys by default; each component can point to its own
+# Secret with <component>.existingSecret (recommended: split per component so a
+# compromised workload/RBAC subject cannot read unrelated secrets). Key names
+# mirror .env.example. Generate values with the same rules as scripts/setup.sh
+# (HEX32 = `openssl rand -hex 32`, HEX16 = `openssl rand -hex 16`,
+# SEALKEY = "k<yyyymm>:<base64 32 bytes>", tokens >= 32 chars).
+#
+#   Key                          Used by                          Format
+#   KRATOS_DSN                   kratos, kratos-courier, migrate  postgres://kratos:...@host:5432/kratos?sslmode=verify-full&max_conns=20
+#   HYDRA_DSN                    hydra, migrate                   postgres://hydra:...@host:5432/hydra?sslmode=verify-full&max_conns=20
+#   BROKER_DATABASE_URL          federation-broker, migrate       postgres://broker:...@host:5432/federation?sslmode=verify-full
+#   IDENTITY_DATABASE_URL        identity-service, migrate        postgres://identity:...@host:5432/identity?sslmode=verify-full
+#   AUDIT_DATABASE_URL           audit-service, migrate           postgres://audit:...@host:5432/audit?sslmode=verify-full
+#   kratos.secrets.yml           kratos (mounted file)            Ory overlay: secrets.cookie/cipher, courier.smtp.connection_uri, OIDC providers (README.md)
+#   hydra.secrets.yml            hydra (mounted file)             Ory overlay: secrets.system/cookie (README.md)
+#   BROKER_SEAL_KEYS             federation-broker                SEALKEY (comma-separated list for rotation)
+#   BROKER_ADMIN_TOKEN           federation-broker, admin-console HEX32
+#   BROKER_INTERNAL_TOKEN        federation-broker, identity-svc  HEX32
+#   BROKER_FACADE_CLIENT_SECRET  federation-broker (+ kratos.secrets.yml client_secret)  HEX32
+#   IDENTITY_SERVICE_TOKEN       identity-service, login-consent, identity-portal, admin-console  HEX32
+#   IDENTITY_FIELD_SEAL_KEYS     identity-service                 SEALKEY
+#   IDENTITY_LOOKUP_HMAC_KEY     identity-service                 HEX32
+#   AUDIT_INGEST_TOKEN           audit-service + every producer   HEX32
+#   AUDIT_READ_TOKEN             audit-service, admin-console     HEX32
+#   LOGIN_COOKIE_SEAL_KEYS       login-consent                    SEALKEY
+#   LOGIN_CSRF_SECRET            login-consent                    HEX32
+#   ADMIN_OIDC_CLIENT_SECRET     admin-console                    HEX32 (Hydra client "admin-console")
+#   ADMIN_COOKIE_SEAL_KEYS       admin-console                    SEALKEY
+#   ADMIN_CSRF_SECRET            admin-console                    HEX32
+#   PORTAL_CSRF_SECRET           identity-portal                  HEX32
+#   DEMO_OIDC_CLIENT_SECRET      demo-web (demo.enabled only)     HEX32
+#   DEMO_CSRF_SECRET             demo-web (demo.enabled only)     HEX32
+secrets:
+  existingSecret: iam-platform-secrets
+
+# --- External PostgreSQL (REQUIRED) -----------------------------------------
+# The chart does not deploy PostgreSQL. Requirements:
+#   * PostgreSQL >= 16 (CI and local dev use 17), managed/HA, encrypted at rest,
+#     automated backups + PITR, TLS enforced (use sslmode=verify-full in DSNs and
+#     make the CA available to the client if it is not publicly trusted).
+#   * One database + one dedicated role per service (see
+#     infrastructure/postgres/init/01-databases.sh): kratos, hydra, federation
+#     (role broker), identity, audit. Roles own their database; no superuser.
+#   * Migrations run as pre-install/pre-upgrade Helm hook Jobs (migrations.enabled).
+#   * Size max_connections for: sum over components of replicas x pool size.
+postgresql:
+  # Egress allowed from DB-using pods (and migration Jobs) to PostgreSQL.
+  port: 5432
+  # NetworkPolicy peers for PostgreSQL. STRONGLY recommended: set the exact
+  # CIDR(s) of the DB endpoint. Empty = any destination on `port`.
+  networkPeers: []
+  #  - ipBlock: {cidr: 10.20.30.0/24}
+
+# --- Migrations (Helm hooks: pre-install, pre-upgrade) ------------------------
+migrations:
+  enabled: true
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# --- Ingress (TLS). Exposes ONLY public endpoints. ----------------------------
+# Admin ports (Kratos 4434, Hydra 4445, broker 8091) are never routed.
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  #  cert-manager.io/cluster-issuer: letsencrypt-prod
+  #  nginx.ingress.kubernetes.io/proxy-body-size: 1m
+  # TLS secret per host = "<host with dots replaced by dashes>-tls" unless a
+  # single (e.g. wildcard) secret is given here.
+  tlsSecretName: ""
+
+# --- NetworkPolicies -------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Where the ingress controller pods run (allowed to reach public ports only).
+  ingressController:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+    podSelector:
+      matchLabels: {app.kubernetes.io/name: ingress-nginx}
+  dns:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: kube-system}
+    podSelector:
+      matchLabels: {k8s-app: kube-dns}
+  # Prometheus (allowed to scrape broker :8091/metrics when metrics.enabled).
+  monitoring:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: monitoring}
+    podSelector: {}
+  # Federation broker egress to SPID/CIE trust anchors and OPs (HTTPS, public
+  # internet only — RFC1918, link-local/metadata and CGNAT ranges excluded).
+  brokerInternetEgress:
+    cidr: 0.0.0.0/0
+    except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+    ports: [443]
+  # Kratos courier egress to the SMTP relay.
+  smtp:
+    port: 587
+    networkPeers: []            # e.g. [{ipBlock: {cidr: 10.30.0.10/32}}]; empty = any destination on port
+  # Extra egress rules appended to every workload (e.g. a proxy).
+  extraEgress: []
+
+# --- Observability ---------------------------------------------------------------
+metrics:
+  # Prometheus scrape annotations on broker pods (admin port 8091, /metrics).
+  podAnnotations: true
+  serviceMonitor:
+    enabled: false              # requires the Prometheus Operator CRDs
+    interval: 30s
+    labels: {}
+observability:
+  otel:
+    # OTLP endpoint placeholder (e.g. otel-collector.observability:4318).
+    # Ory components get TRACING_* env; other workloads get OTEL_EXPORTER_OTLP_ENDPOINT
+    # (the TypeScript services and broker do not ship OTEL instrumentation yet).
+    endpoint: ""
+    insecure: false
+    port: 4318                  # egress port allowed when endpoint is set
+    networkPeers: []
+
+# --- Defaults applied to every workload --------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+  fsGroupChangePolicy: OnRootMismatch
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  privileged: false
+  capabilities: {drop: [ALL]}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Spread replicas across nodes (and zones if labelled) — soft constraint.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+logLevel: info
+
+# Per-component keys (all optional unless stated):
+#   enabled, replicaCount, resources, podAnnotations, extraEnv,
+#   existingSecret (override secrets.existingSecret),
+#   pdb {enabled, maxUnavailable}, autoscaling {enabled, minReplicas, maxReplicas,
+#   targetCPUUtilizationPercentage}, nodeSelector, tolerations, affinity.
+
+kratos:
+  replicaCount: 2
+  existingSecret: ""
+  # Ory overlay file (secrets, SMTP URI, OIDC providers) mounted from a Secret key.
+  secretsFile:
+    existingSecret: ""          # defaults to kratos.existingSecret / secrets.existingSecret
+    key: kratos.secrets.yml
+  # Courier as a separate single-replica Deployment (recommended). When false
+  # the API pods run the courier with --watch-courier.
+  courier:
+    standalone: true
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+  smtp:
+    fromAddress: no-reply@example.it
+    fromName: IAM Platform
+  passkey:
+    displayName: IAM Platform
+    rpId: ""                    # defaults to cookieDomain, else hosts.login
+  # Requires egress to api.pwnedpasswords.com:443 (add networkPolicy.extraEgress).
+  haveibeenpwned: false
+  sessionLifespan: 24h
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+hydra:
+  replicaCount: 2
+  existingSecret: ""
+  secretsFile:
+    existingSecret: ""
+    key: hydra.secrets.yml
+  ttl:
+    accessToken: 15m
+    refreshToken: 720h
+    idToken: 1h
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+broker:
+  replicaCount: 2
+  existingSecret: ""
+  env: production               # "production" enforces https, secure cookies, no private networks
+  # Comma-separated host suffixes allowed for outbound federation requests
+  # (empty = broker default). Example: "spid.gov.it,cie.gov.it,interno.gov.it".
+  outboundHostAllowlist: ""
+  autogenerateKeys: true
+  attributeTtlSeconds: 900
+  retentionDays: 30
+  rateLimit: {rps: 20, burst: 40}
+  # Optional existing ConfigMap with a bootstrap.json (first start only).
+  bootstrap:
+    configMapName: ""
+    key: bootstrap.json
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: "1", memory: 256Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+loginConsent:
+  replicaCount: 2
+  existingSecret: ""
+  allowedOrigins: ""            # ALLOWED_ORIGINS (csv)
+  rememberLoginSeconds: 3600
+  rememberConsentSeconds: 2592000
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+identityPortal:
+  replicaCount: 2
+  existingSecret: ""
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+adminConsole:
+  replicaCount: 2
+  existingSecret: ""
+  requiredLoa: urn:iam:loa:substantial   # ADMIN_REQUIRED_LOA
+  bootstrapEmails: ""                     # ADMIN_BOOTSTRAP_EMAILS (csv); leave empty after first bootstrap
+  sessionTtlSeconds: 28800
+  # Extra annotations for the dedicated admin Ingress. Restrict access, e.g.:
+  #   nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,203.0.113.10/32"
+  ingressAnnotations: {}
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 4, targetCPUUtilizationPercentage: 75}
+
+identityService:
+  replicaCount: 2
+  existingSecret: ""
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+auditService:
+  replicaCount: 2
+  existingSecret: ""
+  retentionDays: 365
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 384Mi}
+  pdb: {enabled: true, maxUnavailable: 1}
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 75}
+
+# --- Demo application (demo-web + demo-api). Disabled in production. ----------
+demo:
+  enabled: false
+  web:
+    replicaCount: 1
+    existingSecret: ""
+    # demo-web reaches Hydra over plain in-cluster HTTP (OIDC_INTERNAL_URL);
+    # openid-client refuses http without this flag.
+    allowInsecureInternalHttp: true
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+    pdb: {enabled: false, maxUnavailable: 1}
+  api:
+    replicaCount: 1
+    audience: demo-api
+    alwaysIntrospect: true
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+    pdb: {enabled: false, maxUnavailable: 1}
+
+# =============================================================================
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  TEST ONLY  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# fedsim is a LOCAL TEST simulator of the SPID/CIE federation (fake Trust
+# Anchor and fake identity providers that issue identities on demand). It
+# MUST NEVER be enabled in production or in any environment reachable by real
+# users: anyone could log in as any citizen. Enabling it also requires the
+# explicit acknowledgement flag below, otherwise rendering fails.
+# =============================================================================
+testFederation:
+  enabled: false
+  iUnderstandThisIsTestOnly: false
+  host: fedsim.example.invalid
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 250m, memory: 128Mi}

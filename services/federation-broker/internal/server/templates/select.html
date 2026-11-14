@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{profileLabel .Profile}} — scegli il gestore dell'identità</title>
+<link rel="stylesheet" href="/static/broker.css">
+</head>
+<body>
+<main class="card">
+  {{if eq (printf "%s" .Profile) "cie"}}
+  <h1>Entra con CIE</h1>
+  <p>Seleziona l'ambiente CIE da utilizzare.</p>
+  {{else}}
+  <h1>Accedi con SPID</h1>
+  <p>Seleziona il tuo gestore di identità digitale SPID.<br><small>Select your SPID identity provider.</small></p>
+  {{end}}
+  <form method="post" action="/oidc/{{.Profile}}/select">
+    <input type="hidden" name="request_id" value="{{.RequestID}}">
+    <ul class="providers">
+      {{range .Providers}}
+      <li><button type="submit" name="provider" value="{{.ID}}">
+        {{if .LogoURI}}<img src="{{.LogoURI}}" alt="" width="32" height="32">{{end}}
+        <span>{{.DisplayName}}</span></button></li>
+      {{end}}
+    </ul>
+    <button type="submit" name="action" value="cancel" class="secondary">Annulla / Cancel</button>
+  </form>
+  <p class="meta">Livello richiesto / requested level: <code>{{.LoA}}</code></p>
+  <p class="meta">I marchi ufficiali SPID/CIE devono essere usati secondo le regole AgID / Ministero dell'Interno.</p>
+</main>
+</body>
+</html>

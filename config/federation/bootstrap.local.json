@@ -1,0 +1,49 @@
+{
+  "_comment": "LOCAL DEVELOPMENT federation bootstrap (first start only; the database is the source of truth afterwards). Entity IDs point to the docker compose network and the local TEST federation simulator. Trust anchors and trust marks are pinned/obtained by scripts/seed-dev.mjs. Never use in production.",
+  "profiles": [
+    {
+      "profile": "spid", "enabled": false, "environment": "local",
+      "entity_id": "http://federation-broker:8090/rp/spid",
+      "organization_name": "Ente di sviluppo (LOCALE)", "homepage_uri": "http://localhost:5580", "policy_uri": "http://localhost:5580/privacy",
+      "logo_uri": "", "contacts": ["protocollo@pec.example.org"], "client_name": "IAM Platform (dev)",
+      "redirect_uris": ["http://localhost:8090/rp/spid/callback"],
+      "authority_hints": ["http://fedsim:8070/ta"], "trust_marks": [], "scopes": ["openid"],
+      "requested_claims": {"userinfo": {"given_name": {"essential": true}, "family_name": {"essential": true}, "https://attributes.eid.gov.it/fiscal_number": {"essential": true}, "email": null, "birthdate": null}},
+      "required_attributes": ["given_name", "family_name", "https://attributes.eid.gov.it/fiscal_number"],
+      "acr_map": [
+        {"acr": "https://www.spid.gov.it/SpidL1", "loa": "urn:iam:loa:low"},
+        {"acr": "https://www.spid.gov.it/SpidL2", "loa": "urn:iam:loa:substantial"},
+        {"acr": "https://www.spid.gov.it/SpidL3", "loa": "urn:iam:loa:high"}
+      ],
+      "default_loa": "urn:iam:loa:substantial", "signing_alg": "RS256",
+      "userinfo_encrypted_response_alg": "RSA-OAEP-256", "userinfo_encrypted_response_enc": "A256CBC-HS512",
+      "entity_configuration_ttl_seconds": 86400, "clock_skew_seconds": 30, "max_id_token_age_seconds": 300, "ui_locales": "it"
+    },
+    {
+      "profile": "cie", "enabled": false, "environment": "local",
+      "entity_id": "http://federation-broker:8090/rp/cie",
+      "organization_name": "Ente di sviluppo (LOCALE)", "homepage_uri": "http://localhost:5580", "policy_uri": "http://localhost:5580/privacy",
+      "logo_uri": "", "contacts": ["protocollo@pec.example.org"], "client_name": "IAM Platform (dev)",
+      "redirect_uris": ["http://localhost:8090/rp/cie/callback"],
+      "authority_hints": ["http://fedsim:8070/ta"], "trust_marks": [], "scopes": ["openid"],
+      "requested_claims": {"userinfo": {"given_name": {"essential": true}, "family_name": {"essential": true}, "https://attributes.eid.gov.it/fiscal_number": {"essential": true}, "email": null, "birthdate": null}},
+      "required_attributes": ["given_name", "family_name", "https://attributes.eid.gov.it/fiscal_number"],
+      "acr_map": [
+        {"acr": "https://www.spid.gov.it/SpidL1", "loa": "urn:iam:loa:low"},
+        {"acr": "https://www.spid.gov.it/SpidL2", "loa": "urn:iam:loa:substantial"},
+        {"acr": "https://www.spid.gov.it/SpidL3", "loa": "urn:iam:loa:high"}
+      ],
+      "default_loa": "urn:iam:loa:substantial", "signing_alg": "RS256",
+      "userinfo_encrypted_response_alg": "RSA-OAEP-256", "userinfo_encrypted_response_enc": "A256CBC-HS512",
+      "entity_configuration_ttl_seconds": 86400, "clock_skew_seconds": 30, "max_id_token_age_seconds": 300, "ui_locales": "it"
+    }
+  ],
+  "providers": [
+    {"profile": "spid", "entity_id": "http://fedsim:8070/op/spid-test", "display_name": "SPID Test IdP (locale)", "enabled": true, "sort_order": 1},
+    {"profile": "spid", "entity_id": "http://fedsim:8070/op/spid-test-2", "display_name": "SPID Test IdP 2 (locale)", "enabled": true, "sort_order": 2},
+    {"profile": "spid", "entity_id": "http://fedsim:8070/op/rogue", "display_name": "Rogue OP (test: non registrato)", "enabled": false, "sort_order": 90},
+    {"profile": "spid", "entity_id": "http://fedsim:8070/op/tampered", "display_name": "Tampered OP (test: metadati alterati)", "enabled": false, "sort_order": 91},
+    {"profile": "cie", "entity_id": "http://fedsim:8070/op/cie-test", "display_name": "CIE Test OP (locale)", "enabled": true, "sort_order": 1}
+  ],
+  "trust_anchors": []
+}

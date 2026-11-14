@@ -1,0 +1,185 @@
+{{- /*
+TypeScript services/apps. All share images.node; the container args select the
+entrypoint (same as the docker compose `command`). The image ENTRYPOINT (tini)
+is kept, so only args are set.
+*/ -}}
+{{- define "iam.env.common" -}}
+- name: NODE_ENV
+  value: production
+- name: LOG_LEVEL
+  value: {{ .root.Values.logLevel | quote }}
+- name: SECURE_COOKIES
+  value: "true"
+- name: PORT
+  value: {{ .port | quote }}
+- name: AUDIT_URL
+  value: {{ printf "%s/events" (include "iam.url.audit" .root) | quote }}
+{{ include "iam.secretEnv" (dict "env" "AUDIT_TOKEN" "secret" .secret "key" "AUDIT_INGEST_TOKEN") }}
+{{- end -}}
+
+{{- define "iam.env.identityService" -}}
+{{- $r := .root -}}
+{{ include "iam.secretEnv" (dict "env" "DATABASE_URL" "secret" .secret "key" "IDENTITY_DATABASE_URL") }}
+{{ include "iam.secretEnv" (dict "env" "INTERNAL_API_TOKEN" "secret" .secret "key" "IDENTITY_SERVICE_TOKEN") }}
+- name: KRATOS_PUBLIC_URL
+  value: {{ include "iam.url.kratosPublic" $r | quote }}
+- name: KRATOS_ADMIN_URL
+  value: {{ include "iam.url.kratosAdmin" $r | quote }}
+- name: BROKER_ADMIN_URL
+  value: {{ include "iam.url.brokerAdmin" $r | quote }}
+{{ include "iam.secretEnv" (dict "env" "BROKER_INTERNAL_TOKEN" "secret" .secret "key" "BROKER_INTERNAL_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "FIELD_SEAL_KEYS" "secret" .secret "key" "IDENTITY_FIELD_SEAL_KEYS") }}
+{{ include "iam.secretEnv" (dict "env" "LOOKUP_HMAC_KEY" "secret" .secret "key" "IDENTITY_LOOKUP_HMAC_KEY") }}
+{{- end -}}
+
+{{- define "iam.env.auditService" -}}
+{{ include "iam.secretEnv" (dict "env" "DATABASE_URL" "secret" .secret "key" "AUDIT_DATABASE_URL") }}
+{{ include "iam.secretEnv" (dict "env" "AUDIT_INGEST_TOKEN" "secret" .secret "key" "AUDIT_INGEST_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "AUDIT_READ_TOKEN" "secret" .secret "key" "AUDIT_READ_TOKEN") }}
+- name: AUDIT_RETENTION_DAYS
+  value: {{ .root.Values.auditService.retentionDays | quote }}
+{{- end -}}
+
+{{- define "iam.env.loginConsent" -}}
+{{- $r := .root -}}{{- $v := $r.Values.loginConsent -}}
+- name: PUBLIC_URL
+  value: {{ include "iam.https" $r.Values.hosts.login | quote }}
+- name: KRATOS_PUBLIC_URL
+  value: {{ include "iam.url.kratosPublic" $r | quote }}
+- name: KRATOS_BROWSER_URL
+  value: {{ include "iam.https" $r.Values.hosts.kratos | quote }}
+- name: KRATOS_ADMIN_URL
+  value: {{ include "iam.url.kratosAdmin" $r | quote }}
+- name: HYDRA_ADMIN_URL
+  value: {{ include "iam.url.hydraAdmin" $r | quote }}
+- name: IDENTITY_SERVICE_URL
+  value: {{ include "iam.url.identity" $r | quote }}
+- name: REMEMBER_LOGIN_SECONDS
+  value: {{ $v.rememberLoginSeconds | quote }}
+- name: REMEMBER_CONSENT_SECONDS
+  value: {{ $v.rememberConsentSeconds | quote }}
+- name: ALLOWED_ORIGINS
+  value: {{ $v.allowedOrigins | quote }}
+{{ include "iam.secretEnv" (dict "env" "IDENTITY_SERVICE_TOKEN" "secret" .secret "key" "IDENTITY_SERVICE_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "COOKIE_SEAL_KEYS" "secret" .secret "key" "LOGIN_COOKIE_SEAL_KEYS") }}
+{{ include "iam.secretEnv" (dict "env" "CSRF_SECRET" "secret" .secret "key" "LOGIN_CSRF_SECRET") }}
+{{- end -}}
+
+{{- define "iam.env.identityPortal" -}}
+{{- $r := .root -}}
+- name: PUBLIC_URL
+  value: {{ include "iam.https" $r.Values.hosts.portal | quote }}
+- name: LOGIN_UI_URL
+  value: {{ include "iam.https" $r.Values.hosts.login | quote }}
+- name: KRATOS_PUBLIC_URL
+  value: {{ include "iam.url.kratosPublic" $r | quote }}
+- name: KRATOS_BROWSER_URL
+  value: {{ include "iam.https" $r.Values.hosts.kratos | quote }}
+- name: KRATOS_ADMIN_URL
+  value: {{ include "iam.url.kratosAdmin" $r | quote }}
+- name: IDENTITY_SERVICE_URL
+  value: {{ include "iam.url.identity" $r | quote }}
+{{ include "iam.secretEnv" (dict "env" "IDENTITY_SERVICE_TOKEN" "secret" .secret "key" "IDENTITY_SERVICE_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "CSRF_SECRET" "secret" .secret "key" "PORTAL_CSRF_SECRET") }}
+{{- end -}}
+
+{{- define "iam.env.adminConsole" -}}
+{{- $r := .root -}}{{- $v := $r.Values.adminConsole -}}
+- name: PUBLIC_URL
+  value: {{ include "iam.https" $r.Values.hosts.admin | quote }}
+- name: OIDC_ISSUER
+  value: {{ printf "%s/" (include "iam.https" $r.Values.hosts.hydra) | quote }}
+- name: OIDC_INTERNAL_URL
+  value: {{ include "iam.url.hydraPublic" $r | quote }}
+- name: OIDC_CLIENT_ID
+  value: admin-console
+- name: ADMIN_REQUIRED_LOA
+  value: {{ $v.requiredLoa | quote }}
+- name: ADMIN_BOOTSTRAP_EMAILS
+  value: {{ $v.bootstrapEmails | quote }}
+- name: SESSION_TTL_SECONDS
+  value: {{ $v.sessionTtlSeconds | quote }}
+- name: KRATOS_PUBLIC_URL
+  value: {{ include "iam.url.kratosPublic" $r | quote }}
+- name: KRATOS_ADMIN_URL
+  value: {{ include "iam.url.kratosAdmin" $r | quote }}
+- name: HYDRA_ADMIN_URL
+  value: {{ include "iam.url.hydraAdmin" $r | quote }}
+- name: IDENTITY_SERVICE_URL
+  value: {{ include "iam.url.identity" $r | quote }}
+- name: BROKER_ADMIN_URL
+  value: {{ include "iam.url.brokerAdmin" $r | quote }}
+- name: AUDIT_READ_URL
+  value: {{ include "iam.url.audit" $r | quote }}
+{{ include "iam.secretEnv" (dict "env" "OIDC_CLIENT_SECRET" "secret" .secret "key" "ADMIN_OIDC_CLIENT_SECRET") }}
+{{ include "iam.secretEnv" (dict "env" "IDENTITY_SERVICE_TOKEN" "secret" .secret "key" "IDENTITY_SERVICE_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "BROKER_ADMIN_TOKEN" "secret" .secret "key" "BROKER_ADMIN_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "AUDIT_READ_TOKEN" "secret" .secret "key" "AUDIT_READ_TOKEN") }}
+{{ include "iam.secretEnv" (dict "env" "COOKIE_SEAL_KEYS" "secret" .secret "key" "ADMIN_COOKIE_SEAL_KEYS") }}
+{{ include "iam.secretEnv" (dict "env" "CSRF_SECRET" "secret" .secret "key" "ADMIN_CSRF_SECRET") }}
+{{- end -}}
+
+{{- define "iam.env.demoApi" -}}
+{{- $r := .root -}}{{- $v := $r.Values.demo.api -}}
+- name: OAUTH2_ISSUER
+  value: {{ printf "%s/" (include "iam.https" $r.Values.hosts.hydra) | quote }}
+- name: OAUTH2_JWKS_URL
+  value: {{ printf "%s/.well-known/jwks.json" (include "iam.url.hydraPublic" $r) | quote }}
+- name: OAUTH2_AUDIENCE
+  value: {{ $v.audience | quote }}
+- name: HYDRA_ADMIN_URL
+  value: {{ include "iam.url.hydraAdmin" $r | quote }}
+- name: ALWAYS_INTROSPECT
+  value: {{ $v.alwaysIntrospect | quote }}
+{{- end -}}
+
+{{- define "iam.env.demoWeb" -}}
+{{- $r := .root -}}{{- $v := $r.Values.demo.web -}}
+- name: PUBLIC_URL
+  value: {{ include "iam.https" $r.Values.hosts.demo | quote }}
+- name: OIDC_ISSUER
+  value: {{ printf "%s/" (include "iam.https" $r.Values.hosts.hydra) | quote }}
+- name: OIDC_INTERNAL_URL
+  value: {{ include "iam.url.hydraPublic" $r | quote }}
+- name: OIDC_CLIENT_ID
+  value: demo-web
+- name: API_URL
+  value: {{ include "iam.url.demoApi" $r | quote }}
+- name: API_AUDIENCE
+  value: {{ $r.Values.demo.api.audience | quote }}
+- name: ALLOW_INSECURE_HTTP
+  value: {{ $v.allowInsecureInternalHttp | quote }}
+{{ include "iam.secretEnv" (dict "env" "OIDC_CLIENT_SECRET" "secret" .secret "key" "DEMO_OIDC_CLIENT_SECRET") }}
+{{ include "iam.secretEnv" (dict "env" "CSRF_SECRET" "secret" .secret "key" "DEMO_CSRF_SECRET") }}
+{{- end -}}
+
+{{- $root := . -}}
+{{- $image := include "iam.image" (dict "root" . "img" .Values.images.node) -}}
+{{- $apps := list
+  (dict "key" "identityService" "name" "identity-service" "entry" "services/identity-service/dist/main.js" "port" 4000 "ready" "/readyz" "v" .Values.identityService "enabled" true "migrate" true)
+  (dict "key" "auditService" "name" "audit-service" "entry" "services/audit-service/dist/main.js" "port" 4100 "ready" "/healthz" "v" .Values.auditService "enabled" true "migrate" true)
+  (dict "key" "loginConsent" "name" "login-consent" "entry" "apps/login-consent/dist/main.js" "port" 3000 "ready" "/healthz" "v" .Values.loginConsent "enabled" true)
+  (dict "key" "identityPortal" "name" "identity-portal" "entry" "apps/identity-portal/dist/main.js" "port" 3200 "ready" "/healthz" "v" .Values.identityPortal "enabled" true)
+  (dict "key" "adminConsole" "name" "admin-console" "entry" "apps/admin-console/dist/main.js" "port" 3100 "ready" "/healthz" "v" .Values.adminConsole "enabled" true)
+  (dict "key" "demoApi" "name" "demo-api" "entry" "services/demo-api/dist/main.js" "port" 5600 "ready" "/healthz" "v" .Values.demo.api "enabled" .Values.demo.enabled)
+  (dict "key" "demoWeb" "name" "demo-web" "entry" "apps/demo-web/dist/main.js" "port" 5555 "ready" "/healthz" "v" .Values.demo.web "enabled" .Values.demo.enabled)
+-}}
+{{- range $app := $apps }}
+{{- if $app.enabled }}
+{{- $secret := include "iam.secretName" (dict "root" $root "v" $app.v) }}
+{{- $ctx := dict "root" $root "secret" $secret "port" $app.port }}
+{{- $env := printf "%s\n%s" (include "iam.env.common" $ctx) (include (printf "iam.env.%s" $app.key) $ctx) }}
+---
+{{ include "iam.workload" (dict "root" $root "name" $app.name "v" $app.v "image" $image "uid" 10001
+    "args" (list "node" $app.entry)
+    "ports" (list (dict "name" "http" "port" $app.port))
+    "env" $env
+    "probes" (include "iam.httpProbes" (dict "port" "http" "live" "/healthz" "ready" $app.ready))) }}
+---
+{{ include "iam.service" (dict "root" $root "name" $app.name "component" $app.name "ports" (list (dict "name" "http" "port" $app.port))) }}
+{{- if and $app.migrate $root.Values.migrations.enabled }}
+---
+{{ include "iam.migrationJob" (dict "root" $root "name" $app.name "image" $image "uid" 10001 "args" (list "node" $app.entry "--migrate") "env" $env) }}
+{{- end }}
+{{- end }}
+{{- end }}

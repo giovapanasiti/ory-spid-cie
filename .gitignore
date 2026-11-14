@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+infrastructure/docker/dev-secrets/
+tests/e2e/playwright-report/
+tests/e2e/test-results/
+services/federation-broker/bin/
+*.pem
+*.key
+!tests/fixtures/**/*.pem
+.DS_Store

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: iam-platform
+description: >-
+  Self-hosted IAM platform: Ory Kratos + Ory Hydra, SPID/CIE OpenID Federation broker
+  and the TypeScript login/consent, identity portal, admin console, identity and audit services.
+type: application
+version: 0.1.0
+# Version of the platform images (node + federation-broker) used when images.*.tag is empty.
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+keywords: [iam, oidc, oauth2, spid, cie, ory, kratos, hydra]

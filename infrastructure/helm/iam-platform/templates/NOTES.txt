@@ -1,0 +1,28 @@
+iam-platform {{ .Chart.Version }} (app {{ .Chart.AppVersion }}) installed as release "{{ .Release.Name }}".
+
+Public endpoints (HTTPS via Ingress):
+  Login UI          https://{{ .Values.hosts.login }}
+  Kratos public     https://{{ .Values.hosts.kratos }}
+  OIDC issuer       https://{{ .Values.hosts.hydra }}/
+  SPID/CIE broker   https://{{ .Values.hosts.broker }}
+  Account portal    https://{{ .Values.hosts.portal }}
+  Admin console     https://{{ .Values.hosts.admin }}  (restrict with adminConsole.ingressAnnotations)
+{{- if .Values.demo.enabled }}
+  Demo              https://{{ .Values.hosts.demo }}
+{{- end }}
+
+Internal URLs to use in the Kratos overlay Secret (kratos.secrets.yml):
+  SPID issuer_url   {{ include "iam.url.brokerPublic" . }}/oidc/spid
+  CIE  issuer_url   {{ include "iam.url.brokerPublic" . }}/oidc/cie
+  mapper_url        file:///etc/config/kratos/federated.jsonnet
+
+Admin APIs are cluster-internal only:
+  {{ include "iam.url.kratosAdmin" . }}  {{ include "iam.url.hydraAdmin" . }}  {{ include "iam.url.brokerAdmin" . }}
+{{- if .Values.testFederation.enabled }}
+
+!!! WARNING: testFederation (fedsim) is ENABLED. This is a TEST-ONLY simulator that
+!!! lets anyone log in as any identity. It must never run in production.
+{{- end }}
+
+OAuth2 clients (admin-console, demo-web, ...) are NOT created by this chart:
+register them in Hydra through the admin API following the change management process.

@@ -1,0 +1,64 @@
+{{- $root := . -}}
+{{- $v := .Values.kratos -}}
+{{- $secret := include "iam.secretName" (dict "root" . "v" $v) -}}
+{{- $fileSecret := $v.secretsFile.existingSecret | default $secret -}}
+{{- $image := include "iam.image" (dict "root" . "img" .Values.images.kratos) -}}
+{{- $env := include "iam.secretEnv" (dict "env" "DSN" "secret" $secret "key" "KRATOS_DSN") -}}
+{{- $configArgs := list "-c" "/etc/config/kratos/kratos.yml" "-c" "/etc/config/kratos-secrets/kratos.secrets.yml" -}}
+{{- $mounts := `
+- name: config
+  mountPath: /etc/config/kratos
+  readOnly: true
+- name: secrets
+  mountPath: /etc/config/kratos-secrets
+  readOnly: true` -}}
+{{- $volumes := printf `
+- name: config
+  configMap:
+    name: %s
+- name: secrets
+  secret:
+    secretName: %s
+    defaultMode: 0440
+    items:
+      - key: %s
+        path: kratos.secrets.yml` (include "iam.res" (dict "root" . "name" "kratos-config")) $fileSecret $v.secretsFile.key -}}
+{{- $checksum := dict "checksum/config" (include (print $.Template.BasePath "/kratos-configmap.yaml") . | sha256sum) -}}
+{{- $serveArgs := concat (list "serve") $configArgs -}}
+{{- if not $v.courier.standalone }}{{- $serveArgs = append $serveArgs "--watch-courier" -}}{{- end -}}
+{{- $probes := `
+startupProbe:
+  httpGet: {path: /health/alive, port: admin}
+  periodSeconds: 3
+  failureThreshold: 40
+livenessProbe:
+  httpGet: {path: /health/alive, port: admin}
+  periodSeconds: 10
+  timeoutSeconds: 3
+readinessProbe:
+  httpGet: {path: /health/ready, port: admin}
+  periodSeconds: 5
+  timeoutSeconds: 3` -}}
+{{ include "iam.workload" (dict "root" . "name" "kratos" "v" $v "image" $image "uid" 10000 "ory" true
+    "args" $serveArgs
+    "ports" (list (dict "name" "public" "port" 4433) (dict "name" "admin" "port" 4434))
+    "env" $env "probes" $probes "volumes" $volumes "volumeMounts" $mounts "podAnnotations" $checksum) }}
+---
+{{ include "iam.service" (dict "root" . "name" "kratos-public" "component" "kratos" "ports" (list (dict "name" "public" "port" 4433))) }}
+---
+# Internal only: never referenced by an Ingress.
+{{ include "iam.service" (dict "root" . "role" "admin" "name" "kratos-admin" "component" "kratos" "ports" (list (dict "name" "admin" "port" 4434))) }}
+{{- if $v.courier.standalone }}
+{{- $cv := merge (dict "replicaCount" 1 "resources" $v.courier.resources) (omit $v "replicaCount" "resources" "pdb" "autoscaling") }}
+---
+# Single courier worker (sends verification/recovery mail). Recreate avoids two concurrent workers during rollout.
+{{ include "iam.serviceAccount" (dict "root" . "name" "kratos-courier") }}
+---
+{{ include "iam.deployment" (dict "root" . "name" "kratos-courier" "v" $cv "image" $image "uid" 10000 "ory" true "recreate" true
+    "args" (concat (list "courier" "watch") $configArgs)
+    "env" $env "volumes" $volumes "volumeMounts" $mounts "podAnnotations" $checksum) }}
+{{- end }}
+{{- if .Values.migrations.enabled }}
+---
+{{ include "iam.migrationJob" (dict "root" . "name" "kratos" "image" $image "uid" 10000 "args" (list "migrate" "sql" "up" "-e" "--yes") "env" $env) }}
+{{- end }}

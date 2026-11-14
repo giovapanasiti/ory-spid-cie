@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.26.11-alpine AS build
+WORKDIR /src
+COPY services/federation-broker/go.mod services/federation-broker/go.sum ./
+RUN go mod download
+COPY services/federation-broker/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/broker ./cmd/broker \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/fedsim ./cmd/fedsim \
+ && mkdir -p /out/data
+
+# Production image: broker only, distroless, non-root.
+FROM gcr.io/distroless/static-debian12:nonroot AS broker
+COPY --from=build /out/broker /broker
+USER 65532:65532
+EXPOSE 8090 8091
+ENTRYPOINT ["/broker"]
+
+# Development / CI only: local test federation simulator.
+FROM gcr.io/distroless/static-debian12:nonroot AS fedsim
+COPY --from=build /out/fedsim /fedsim
+COPY --from=build --chown=65532:65532 /out/data /data
+USER 65532:65532
+EXPOSE 8070
+ENTRYPOINT ["/fedsim"]

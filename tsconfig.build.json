@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/auth-sdk" },
+    { "path": "packages/ui" },
+    { "path": "services/identity-service" },
+    { "path": "services/audit-service" },
+    { "path": "services/demo-api" },
+    { "path": "apps/login-consent" },
+    { "path": "apps/identity-portal" },
+    { "path": "apps/admin-console" },
+    { "path": "apps/demo-web" }
+  ]
+}

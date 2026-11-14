@@ -1,0 +1,7 @@
+**/dist
+**/node_modules
+coverage
+services/federation-broker
+infrastructure/helm/**/templates
+*.md
+package-lock.json

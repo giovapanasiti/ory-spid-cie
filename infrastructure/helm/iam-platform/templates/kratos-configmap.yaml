@@ -1,0 +1,137 @@
+{{- $h := .Values.hosts -}}
+{{- $k := .Values.kratos -}}
+{{- $login := include "iam.https" $h.login -}}
+{{- $portal := include "iam.https" $h.portal -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "iam.res" (dict "root" . "name" "kratos-config") }}
+  labels:
+    {{- include "iam.labels" (dict "root" . "component" "kratos") | nindent 4 }}
+data:
+  # Ory Kratos v26.2.0 — rendered from values (mirrors config/kratos/kratos.yml).
+  # Secrets, SMTP URI and OIDC providers come from the mounted overlay Secret
+  # (kratos.secrets.yml); DSN comes from the DSN env var.
+  kratos.yml: |
+    serve:
+      public:
+        base_url: {{ include "iam.https" $h.kratos }}/
+        cors:
+          enabled: false
+      admin:
+        base_url: {{ include "iam.url.kratosAdmin" . }}/
+
+    selfservice:
+      default_browser_return_url: {{ $portal }}/
+      allowed_return_urls:
+        - {{ $login }}
+        - {{ include "iam.https" $h.admin }}
+        - {{ $portal }}
+        - {{ include "iam.https" $h.hydra }}
+        {{- if .Values.demo.enabled }}
+        - {{ include "iam.https" $h.demo }}
+        {{- end }}
+
+      methods:
+        password:
+          enabled: true
+          config:
+            min_password_length: 12
+            identifier_similarity_check_enabled: true
+            haveibeenpwned_enabled: {{ $k.haveibeenpwned }}
+        passkey:
+          enabled: true
+          config:
+            rp:
+              display_name: {{ $k.passkey.displayName | quote }}
+              id: {{ $k.passkey.rpId | default .Values.cookieDomain | default $h.login }}
+              origins:
+                - {{ $login }}
+        code:
+          enabled: true
+        profile:
+          enabled: true
+        oidc:
+          enabled: true
+
+      flows:
+        error:
+          ui_url: {{ $login }}/auth/error
+        settings:
+          ui_url: {{ $login }}/auth/settings
+          privileged_session_max_age: 10m
+          required_aal: highest_available
+        recovery:
+          enabled: true
+          ui_url: {{ $login }}/auth/recovery
+          use: code
+        verification:
+          enabled: true
+          ui_url: {{ $login }}/auth/verification
+          use: code
+          after:
+            default_browser_return_url: {{ $portal }}/
+        logout:
+          after:
+            default_browser_return_url: {{ $login }}/auth/login
+        login:
+          ui_url: {{ $login }}/auth/login
+          lifespan: 10m
+        registration:
+          ui_url: {{ $login }}/auth/registration
+          lifespan: 10m
+          after:
+            password:
+              hooks:
+                - hook: session
+                - hook: show_verification_ui
+            passkey:
+              hooks:
+                - hook: session
+            oidc:
+              hooks:
+                - hook: session
+
+    session:
+      lifespan: {{ $k.sessionLifespan }}
+      earliest_possible_extend: 1h
+      cookie:
+        same_site: Lax
+        {{- with .Values.cookieDomain }}
+        domain: {{ . }}
+        {{- end }}
+
+    cookies:
+      same_site: Lax
+      {{- with .Values.cookieDomain }}
+      domain: {{ . }}
+      {{- end }}
+
+    log:
+      level: {{ .Values.logLevel }}
+      format: json
+      leak_sensitive_values: false
+
+    ciphers:
+      algorithm: xchacha20-poly1305
+
+    hashers:
+      algorithm: bcrypt
+      bcrypt:
+        cost: 12
+
+    identity:
+      default_schema_id: default
+      schemas:
+        - id: default
+          url: file:///etc/config/kratos/identity.schema.json
+
+    courier:
+      smtp:
+        from_address: {{ $k.smtp.fromAddress }}
+        from_name: {{ $k.smtp.fromName | quote }}
+  # Copies of config/kratos/* (kept in sync by scripts/k8s-validate.sh).
+  identity.schema.json: |
+    {{- .Files.Get "files/identity.schema.json" | nindent 4 }}
+  federated.jsonnet: |
+    {{- .Files.Get "files/federated.jsonnet" | nindent 4 }}

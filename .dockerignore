@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+coverage
+tests/e2e/test-results
+tests/e2e/playwright-report
+infrastructure/docker/dev-secrets
+docs

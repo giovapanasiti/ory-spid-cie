@@ -1,0 +1,25 @@
+{
+  "name": "@iam/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@iam/shared": "1.0.0",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/formbody": "^9.0.1"
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "fastify": "^5.12.8"
+  }
+}

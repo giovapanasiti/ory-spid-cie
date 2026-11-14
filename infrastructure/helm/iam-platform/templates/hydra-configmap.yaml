@@ -1,0 +1,84 @@
+{{- $h := .Values.hosts -}}
+{{- $login := include "iam.https" $h.login -}}
+{{- $t := .Values.hydra.ttl -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "iam.res" (dict "root" . "name" "hydra-config") }}
+  labels:
+    {{- include "iam.labels" (dict "root" . "component" "hydra") | nindent 4 }}
+data:
+  # Ory Hydra v26.2.0 — rendered from values (mirrors config/hydra/hydra.yml).
+  # secrets.system/cookie come from the mounted overlay Secret (hydra.secrets.yml); DSN from env.
+  hydra.yml: |
+    serve:
+      cookies:
+        same_site_mode: Lax
+      public:
+        cors:
+          enabled: false
+      admin:
+        cors:
+          enabled: false
+
+    urls:
+      self:
+        issuer: {{ include "iam.https" $h.hydra }}/
+        public: {{ include "iam.https" $h.hydra }}/
+      login: {{ $login }}/login
+      consent: {{ $login }}/consent
+      logout: {{ $login }}/logout
+      error: {{ $login }}/oauth2/error
+      post_logout_redirect: {{ $login }}/logged-out
+
+    strategies:
+      access_token: jwt
+      scope: exact
+
+    oidc:
+      subject_identifiers:
+        supported_types:
+          - public
+
+    oauth2:
+      pkce:
+        enforced_for_public_clients: true
+      expose_internal_errors: false
+      session:
+        encrypt_at_rest: true
+
+    ttl:
+      access_token: {{ $t.accessToken }}
+      refresh_token: {{ $t.refreshToken }}
+      id_token: {{ $t.idToken }}
+      auth_code: 5m
+      login_consent_request: 30m
+
+    webfinger:
+      oidc_discovery:
+        supported_scope:
+          - openid
+          - offline_access
+          - profile
+          - email
+          - fiscal_number
+          - profile.read
+          - reports.read
+        supported_claims:
+          - sub
+          - loa
+          - idp
+          - federated_acr
+          - identity_verified
+          - given_name
+          - family_name
+          - name
+          - email
+          - email_verified
+          - birthdate
+          - fiscal_number
+
+    log:
+      level: {{ .Values.logLevel }}
+      format: json
+      leak_sensitive_values: false

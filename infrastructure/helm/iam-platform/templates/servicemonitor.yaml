@@ -1,0 +1,21 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+# Scrapes broker metrics on the internal admin Service (8091, /metrics).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "iam.res" (dict "root" . "name" "federation-broker") }}
+  labels:
+    {{- include "iam.labels" (dict "root" . "component" "federation-broker") | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "iam.selectorLabels" (dict "root" . "component" "federation-broker") | nindent 6 }}
+      iam.enpam.it/service-role: admin
+  endpoints:
+    - port: admin
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

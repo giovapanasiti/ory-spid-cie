@@ -1,0 +1,15 @@
+{
+  "name": "@iam/login-consent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": { "start": "node dist/main.js", "dev": "tsx watch src/main.ts" },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/formbody": "^9.0.1",
+    "@iam/shared": "1.0.0",
+    "@iam/ui": "1.0.0",
+    "fastify": "^5.12.8"
+  }
+}

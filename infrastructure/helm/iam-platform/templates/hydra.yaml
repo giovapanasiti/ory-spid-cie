@@ -1,0 +1,51 @@
+{{- $v := .Values.hydra -}}
+{{- $secret := include "iam.secretName" (dict "root" . "v" $v) -}}
+{{- $fileSecret := $v.secretsFile.existingSecret | default $secret -}}
+{{- $image := include "iam.image" (dict "root" . "img" .Values.images.hydra) -}}
+{{- $env := include "iam.secretEnv" (dict "env" "DSN" "secret" $secret "key" "HYDRA_DSN") -}}
+{{- $mounts := `
+- name: config
+  mountPath: /etc/config/hydra
+  readOnly: true
+- name: secrets
+  mountPath: /etc/config/hydra-secrets
+  readOnly: true` -}}
+{{- $volumes := printf `
+- name: config
+  configMap:
+    name: %s
+- name: secrets
+  secret:
+    secretName: %s
+    defaultMode: 0440
+    items:
+      - key: %s
+        path: hydra.secrets.yml` (include "iam.res" (dict "root" . "name" "hydra-config")) $fileSecret $v.secretsFile.key -}}
+{{- $checksum := dict "checksum/config" (include (print $.Template.BasePath "/hydra-configmap.yaml") . | sha256sum) -}}
+{{- $probes := `
+startupProbe:
+  httpGet: {path: /health/alive, port: admin}
+  periodSeconds: 3
+  failureThreshold: 40
+livenessProbe:
+  httpGet: {path: /health/alive, port: admin}
+  periodSeconds: 10
+  timeoutSeconds: 3
+readinessProbe:
+  httpGet: {path: /health/ready, port: admin}
+  periodSeconds: 5
+  timeoutSeconds: 3` -}}
+{{/* No --dev flag: production mode (https issuer, secure cookies). */}}
+{{ include "iam.workload" (dict "root" . "name" "hydra" "v" $v "image" $image "uid" 65532 "ory" true
+    "args" (list "serve" "all" "-c" "/etc/config/hydra/hydra.yml" "-c" "/etc/config/hydra-secrets/hydra.secrets.yml")
+    "ports" (list (dict "name" "public" "port" 4444) (dict "name" "admin" "port" 4445))
+    "env" $env "probes" $probes "volumes" $volumes "volumeMounts" $mounts "podAnnotations" $checksum) }}
+---
+{{ include "iam.service" (dict "root" . "name" "hydra-public" "component" "hydra" "ports" (list (dict "name" "public" "port" 4444))) }}
+---
+# Internal only: never referenced by an Ingress.
+{{ include "iam.service" (dict "root" . "role" "admin" "name" "hydra-admin" "component" "hydra" "ports" (list (dict "name" "admin" "port" 4445))) }}
+{{- if .Values.migrations.enabled }}
+---
+{{ include "iam.migrationJob" (dict "root" . "name" "hydra" "image" $image "uid" 65532 "args" (list "migrate" "sql" "up" "-e" "--yes") "env" $env) }}
+{{- end }}
