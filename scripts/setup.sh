@@ -64,7 +64,9 @@ fi
 
 set -a; source .env; set +a
 dir=infrastructure/docker/dev-secrets
-mkdir -p "$dir"; chmod 700 "$dir"
+# Ory images run as uid 65532 (nonroot): the bind-mounted files must be
+# world-readable. Dev-only secrets, gitignored.
+mkdir -p "$dir"; chmod 755 "$dir"
 cat > "$dir/kratos.secrets.yml" <<YAML
 secrets:
   cookie: ["$KRATOS_SECRETS_COOKIE"]
@@ -103,5 +105,5 @@ secrets:
   system: ["$HYDRA_SECRETS_SYSTEM"]
   cookie: ["$HYDRA_SECRETS_COOKIE"]
 YAML
-chmod 600 "$dir"/*.yml
+chmod 644 "$dir"/*.yml
 echo "wrote $dir/{kratos,hydra}.secrets.yml"

@@ -355,6 +355,65 @@ GET http://localhost:4444/oauth2/auth?response_type=code&client_id=...&scope=ope
 
 Scope per l'utente: `openid`, `profile`, `email`, `offline_access` e `fiscal_number`. Quest'ultimo restituisce il codice fiscale solo se proviene da un accesso SPID/CIE verificato. Gli scope delle API demo (`profile.read`, `reports.read`) sono esempi da sostituire con i propri.
 
+### Più applicazioni: chi può ricevere le callback
+
+Hydra decide quali URL possono ricevere le callback. Ogni sistema che usa la piattaforma è un **client OAuth2/OIDC** registrato in Hydra, con una lista esatta di URL autorizzati. Hydra rifiuta ogni `redirect_uri` che non è nella lista del client.
+
+Per ogni client registri questi campi:
+
+| Campo | Funzione |
+|---|---|
+| `redirect_uris` | Gli URL che possono ricevere il `code` dopo il login. Il confronto è esatto: non ci sono wildcard né prefissi. |
+| `post_logout_redirect_uris` | Gli URL dove l'utente può tornare dopo il logout. |
+| `scope` | Gli scope che il client può chiedere (es. `fiscal_number`). |
+| `audience` | Le API per cui il client può ottenere un token (es. `demo-api`). |
+| `metadata.min_loa` | Il livello di garanzia minimo. `login-consent` lo applica a ogni accesso del client, quindi puoi forzare SPID livello 2 o CIE per un sistema specifico. |
+| `skip_consent` | Usa `true` solo per le applicazioni interne di ENPAM. |
+| `token_endpoint_auth_method` | `client_secret_basic` per un backend. `none` + PKCE per una SPA o un'app mobile. |
+
+Puoi registrare un client in tre modi:
+
+- **Console di amministrazione**: **Client OAuth2 → Registra nuova applicazione** (`http://localhost:3100/clients`). La console rifiuta le wildcard e rifiuta `http://` se l'host non è `localhost` o `127.0.0.1`. Il secret è visibile una sola volta.
+- **Admin API di Hydra** (porta 4445, solo rete interna): vedi [`docs/operations/api-examples.md`](docs/operations/api-examples.md) §6.
+- **In modo dichiarativo**: `scripts/seed-dev.mjs` crea o aggiorna i client di esempio (`demo-web`, `demo-public`, `demo-m2m`, `admin-console`). Puoi usare lo stesso modello per i tuoi sistemi.
+
+Esempio con due sistemi, un portale web e un'app mobile:
+
+```json
+{
+  "client_id": "portale-iscritti",
+  "redirect_uris": ["https://iscritti.enpam.it/auth/callback"],
+  "post_logout_redirect_uris": ["https://iscritti.enpam.it/"],
+  "scope": "openid profile email fiscal_number",
+  "audience": ["api-previdenza"],
+  "metadata": { "min_loa": "urn:iam:loa:substantial" },
+  "token_endpoint_auth_method": "client_secret_basic",
+  "skip_consent": true
+}
+```
+
+```json
+{
+  "client_id": "app-mobile",
+  "redirect_uris": ["it.enpam.app:/oauth/callback"],
+  "scope": "openid offline_access profile",
+  "audience": ["api-previdenza"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+Altri due punti di configurazione contengono URL, ma di solito non li devi cambiare:
+
+- **Kratos `allowed_return_urls`** (`config/kratos/kratos.yml`). Controlla solo il parametro `return_to` dei flussi self-service di Kratos (login, registrazione, impostazioni, recupero). Un sistema che fa il login OIDC standard tramite Hydra **non deve** stare in questa lista. Aggiungilo solo se manda l'utente direttamente a una pagina Kratos con `?return_to=...`, per esempio con un link "modifica profilo" verso il portale identità.
+- **Broker SPID/CIE `BROKER_FACADE_REDIRECT_URIS`**. Contiene solo le callback di Kratos. Nella federazione SPID/CIE l'unico Relying Party è il broker, e le applicazioni non parlano mai con gli IdP SPID/CIE. Quando aggiungi un nuovo sistema, non cambi la federazione, il trust anchor o i metadati SPID.
+
+Consigli per più sistemi:
+
+- Usa un client per ogni sistema **e** per ogni ambiente (`portale-iscritti-test`, `portale-iscritti-prod`). Non mettere gli URL di test e di produzione nello stesso client.
+- Usa `audience` diverse per API diverse. Così un token del sistema A non funziona sulle API del sistema B.
+- In produzione, gestisci i client come codice: un file versionato che una pipeline applica a Hydra, come fa `seed-dev.mjs`. La console va bene per i casi singoli, ma non dà revisione né storico.
+- La console oggi crea ed elimina i client, ma non li modifica. Per cambiare un redirect URI usa l'admin API (`PUT /admin/clients/{id}`) o lo script.
+
 ### API
 
 `@iam/auth-sdk` valida firma, issuer, audience e scadenza del token e controlla tipo di token, scope, livello di garanzia ed età dell'autenticazione. L'esempio riprende `services/demo-api`:
@@ -529,6 +588,13 @@ Il lavoro su questo repository segue le **Linee Guida AI** ENPAM, la **Procedura
 `fedsim` è uno strumento di sviluppo. Il fatto che i test passino contro di esso non dimostra la conformità a SPID o CIE.
 
 ## 18. Registro delle modifiche
+
+### 2026-11-14: callback autorizzate e permessi dei segreti locali
+
+| Modifica | Dove |
+|---|---|
+| Nuova sezione su come autorizzare gli URL di callback quando più sistemi usano la piattaforma | `README.md` §9 |
+| Hydra e Kratos non partivano con `permission denied`: le immagini Ory girano come utente `65532` e non potevano leggere i segreti locali. Ora la cartella `dev-secrets` ha permessi `755` e i file `644` (segreti solo di sviluppo, esclusi da git) | `scripts/setup.sh` |
 
 ### 2026-11-14: `make dev` su una macchina nuova
 
