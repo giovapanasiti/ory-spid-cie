@@ -22,3 +22,11 @@ export async function chooseIdp(page: Page, name: RegExp) {
   await expect(page.locator("h1")).toContainText(/SPID|CIE/);
   await page.getByRole("button", { name }).click();
 }
+
+/** Picks a provider when the broker shows its chooser (more than one OP configured for the profile). */
+export async function chooseIdpIfAsked(page: Page, name: RegExp) {
+  const button = page.getByRole("button", { name });
+  const simulator = page.locator(".banner");
+  await expect(button.or(simulator).first()).toBeVisible({ timeout: 30_000 });
+  if (await button.isVisible()) await button.click();
+}

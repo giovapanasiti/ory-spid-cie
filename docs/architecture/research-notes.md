@@ -133,7 +133,12 @@ entity statements, trust chains, `private_key_jwt`, signed request objects or SP
 ## 11. Test tools
 
 - `italia/spid-cie-oidc-django`: demo federation (TA :8000 with SPID OP, RP :8001, CIE OP :8002),
-  Docker image `ghcr.io/italia/spid-cie-oidc-django`; requires `/etc/hosts` entries. Onboarding
-  validators. Demo credentials — isolated use only.
+  Docker image `ghcr.io/italia/spid-cie-oidc-django`. Integrated as the optional REFERENCE TEST
+  federation (`make reference-up`, `*.localhost` host names instead of `/etc/hosts` entries); see
+  [`../federation/reference-federation.md`](../federation/reference-federation.md). Demo credentials:
+  isolated use only. Checked 2026-11-14 (image of 2026-11-09): its UserInfo JWT omits `iss`/`aud`
+  required by `userinfo_endpoint.rst`; the demo user's fiscal number is malformed (15 characters).
+- `demo.spid.gov.it` (AgID): SAML 2.0 only (IdP metadata `/metadata.xml`, SP registration through the
+  SPID SAML Validator); no OpenID Federation endpoints on 2026-11-14. Not usable by this OIDC-only RP.
 - `AgID/spid-oidc-check-op`: OP conformance tool (Node 14).
 - CIE pre-production environment: via onboarding portal; URLs **UNVERIFIED**.

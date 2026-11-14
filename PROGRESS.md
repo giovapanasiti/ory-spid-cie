@@ -8,10 +8,11 @@ _Last updated: 2026-11-14._ Status legend: COMPLETE · PARTIAL · BLOCKED · NOT
 | Suite | Command | Result |
 |---|---|---|
 | Go unit + protocol integration (race) | `make test-go` | PASS — fedjose, oidcfed, safehttp, sim (trust chain), server (end-to-end federation flows, 15 rejection scenarios) |
-| TS unit + DB integration | `make test-ts` | PASS — 29 tests (shared, auth-sdk, ui, login-consent policy/claims, demo-api, admin RBAC, identity-service linking/assurance incl. concurrent linking) |
+| TS unit + DB integration | `make test-ts` | PASS — 30 tests (shared, auth-sdk, ui, login-consent policy/claims, demo-api, admin RBAC, identity-service linking/assurance incl. concurrent linking) |
 | Lint / typecheck | `npm run lint`, `npm run build`, `gofmt`, `go vet` | PASS |
 | Live security smoke | `scripts/security-smoke.sh` | 14/14 PASS |
 | Browser e2e (Playwright, Chromium) | `make test-e2e` | 10/10 PASS |
+| Browser e2e against the REFERENCE TEST federation (`italia/spid-cie-oidc-django` demo SPID OP and CIE OP) | `make reference-up && make test-e2e-reference` | 2/2 PASS, with the test-only adjustments in `docs/federation/reference-federation.md`; interoperability evidence, not conformance |
 | Go vulnerabilities | `govulncheck ./...` (go1.26.11) | No vulnerabilities found |
 | npm production deps | `npm audit --omit=dev --audit-level=high` | 0 vulnerabilities |
 | Helm | `scripts/k8s-validate.sh` (helm lint + kubeconform) | PASS (57/58 resources valid, ServiceMonitor CRD skipped) |
@@ -27,8 +28,8 @@ Untested / weakly tested security-relevant paths: broker admin API handlers (uni
 | 1 Core infrastructure | COMPLETE | monorepo, Postgres (one DB/role per service), Kratos/Hydra v26.2.0, migrations, compose, `.env` generation |
 | 2 Authentication platform | COMPLETE | login-consent, Kratos UI, OAuth2/OIDC flows, demo app — e2e verified |
 | 3 Federation foundation | COMPLETE (local) | trust chain, metadata policy, trust marks, keys, SSRF-safe fetch, simulator |
-| 4 SPID | PARTIAL | protocol implemented and tested against LOCAL simulator; official conformance & onboarding BLOCKED (B1, B5) |
-| 5 CIE | PARTIAL | as SPID; CIE-specific ACR values UNVERIFIED (B2, B9) |
+| 4 SPID | PARTIAL | protocol implemented and tested against LOCAL simulator and the reference implementation demo OP; official conformance & onboarding BLOCKED (B1, B5) |
+| 5 CIE | PARTIAL | as SPID (reference CIE OP login with step-up passes); CIE-specific ACR values UNVERIFIED (B2, B9) |
 | 6 Identity management | COMPLETE | links, verified attributes, portal, admin console (incl. federation keys/certificates/metadata UI), audit |
 | 7 Security & testing | PARTIAL | suites above pass; independent security review NOT STARTED (B7) |
 | 8 Deployment | PARTIAL | Helm chart + CI written and statically validated; no cluster run, workflows never executed on GitHub (B8, B10) |

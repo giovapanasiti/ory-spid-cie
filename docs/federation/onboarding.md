@@ -15,10 +15,10 @@ production secrets requires human approval. Nothing in this repository performs 
 | | Local development | Test / pre-production | Production |
 |---|---|---|---|
 | Purpose | develop and run automated tests | validate against official test infrastructure | real users |
-| Federation | **LOCAL test federation** `fedsim` (fake TA + fake OPs, fault injection) | operators' pre-production / test federation; `italia/spid-cie-oidc-django` demo federation for isolated checks | official SPID / CIE federations |
+| Federation | **LOCAL test federation** `fedsim` (fake TA + fake OPs, fault injection); optional **REFERENCE TEST federation** (`italia/spid-cie-oidc-django` demo, [`reference-federation.md`](reference-federation.md)) | operators' pre-production / test federation; `italia/spid-cie-oidc-django` demo federation for isolated checks | official SPID / CIE federations |
 | Broker `BROKER_ENV` | `development` (http and private networks allowed) | `production` recommended | `production` (required by the Helm chart) |
 | Profile `environment` | `local` | `test` | `production` (https enforced for every URL) |
-| Entity IDs | `http://federation-broker:8090/rp/{spid,cie}` (compose network) | public **https** test hostnames | public **https** production hostnames |
+| Entity IDs | `http://broker.localhost:8090/rp/{spid,cie}` (`*.localhost`: loopback in browsers, network alias in compose) | public **https** test hostnames | public **https** production hostnames |
 | Trust anchor pinning | automatic by `scripts/seed-dev.mjs` from `fedsim` (**no out-of-band verification** — local only) | manual, thumbprints verified out-of-band | manual, thumbprints verified out-of-band, under change management |
 | Trust marks | issued on demand by `fedsim` (`/ta/dev/trust-mark`) | issued by the test federation | issued by the federation operator after onboarding |
 | Keys | auto-generated RSA-2048 | generated for the test entity; certificates as required | generated for production (never reused from test); certificates via CSR if required |
@@ -51,7 +51,7 @@ instance can log in as any synthetic user.
 | `AgID/spid-oidc-check-op` | AgID conformance tool for **OpenID Providers** | not directly applicable to an RP; an RP-side validation tool/procedure must be identified with AgID during onboarding (UNVERIFIED) |
 | Operators' onboarding portals (e.g. CIE: https://federazione.servizicie.interno.gov.it/) | registration and pre-production access | required |
 
-None of these tools has been run against this repository yet (see
+Only the `italia/spid-cie-oidc-django` demo federation has been run against this repository (local, 2026-11-14, [`reference-federation.md`](reference-federation.md)); no official validator has been run yet (see
 [`../compliance/readiness-checklist.md`](../compliance/readiness-checklist.md)).
 
 ## 4. Pinning a Trust Anchor (out-of-band thumbprint verification)

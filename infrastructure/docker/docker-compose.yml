@@ -100,7 +100,10 @@ services:
     cap_drop: [ALL]
     environment:
       BROKER_ENV: development
-      BROKER_PUBLIC_URL: http://localhost:8090
+      # broker.localhost resolves to 127.0.0.1 in browsers (RFC 6761) and to this container
+      # inside the compose network (alias below): the SPID/CIE entity ID and the redirect URI
+      # share one host, as required by SPID/CIE OPs (the redirect_uri host must be in client_id).
+      BROKER_PUBLIC_URL: http://broker.localhost:8090
       BROKER_INTERNAL_URL: http://federation-broker:8090
       BROKER_DATABASE_URL: postgres://broker:${BROKER_DB_PASSWORD}@postgres:5432/federation?sslmode=disable
       BROKER_SEAL_KEYS: ${BROKER_SEAL_KEYS}
@@ -118,6 +121,9 @@ services:
     volumes:
       - ../../config/federation:/etc/config/federation:ro
     ports: ["127.0.0.1:8090:8090"]
+    networks:
+      default:
+        aliases: [broker.localhost]
     depends_on: { postgres: { condition: service_healthy } }
     healthcheck:
       test: ["CMD", "/broker", "-healthcheck"]
@@ -133,7 +139,7 @@ services:
       FEDSIM_I_UNDERSTAND_THIS_IS_TEST_ONLY: "true"
       FEDSIM_INTERNAL_URL: http://fedsim:8070
       FEDSIM_PUBLIC_URL: http://localhost:8070
-      FEDSIM_RP_ENTITIES: http://federation-broker:8090/rp/spid,http://federation-broker:8090/rp/cie
+      FEDSIM_RP_ENTITIES: http://broker.localhost:8090/rp/spid,http://broker.localhost:8090/rp/cie
       FEDSIM_KEY_FILE: /data/fedsim-keys.json
     volumes: [fedsim:/data]
     ports: ["127.0.0.1:8070:8070"]
@@ -277,6 +283,65 @@ services:
     ports: ["127.0.0.1:5580:5555"]
     depends_on: { hydra: { condition: service_healthy } }
     healthcheck: *nodehealth
+
+  # ------------------------------------------- REFERENCE TEST federation (optional)
+  # Official reference implementation italia/spid-cie-oidc-django (Developers Italia), demo
+  # projects: trust anchor + SPID OP (ref-ta) and CIE OP (ref-cie-op). Enabled only with
+  # `make reference-up` (compose profile "reference"). PUBLIC demo keys and users: TEST ONLY,
+  # bound to 127.0.0.1, never deploy. Image pinned by digest; amd64 only (emulated on arm64).
+  ref-ta:
+    image: &refimage ghcr.io/italia/spid-cie-oidc-django@sha256:1b3e7342c6cbf6096c7425b5ab3acc6d8f2e3797b1e72093f72df06570b6fb83
+    platform: linux/amd64
+    profiles: [reference]
+    command: ["sh", "/reference/entrypoint.sh", "federation_authority", "8000"]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs: [/work, /tmp]
+    environment:
+      REFERENCE_RP_ENTITIES: http://broker.localhost:8090/rp/spid,http://broker.localhost:8090/rp/cie
+    volumes: [../reference-federation:/reference:ro]
+    ports: ["127.0.0.1:8000:8000"]
+    networks:
+      default:
+        aliases: [trust-anchor.localhost]
+    healthcheck: &refhealth
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=5)", "http://trust-anchor.localhost:8000/.well-known/openid-federation"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  ref-cie-op:
+    image: *refimage
+    platform: linux/amd64
+    profiles: [reference]
+    command: ["sh", "/reference/entrypoint.sh", "provider", "8002"]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs: [/work, /tmp]
+    volumes: [../reference-federation:/reference:ro]
+    ports: ["127.0.0.1:8002:8002"]
+    networks:
+      default:
+        aliases: [cie-provider.localhost]
+    depends_on: { ref-ta: { condition: service_healthy } }
+    healthcheck:
+      <<: *refhealth
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=5)", "http://cie-provider.localhost:8002/oidc/op/.well-known/openid-federation"]
+
+  seed-reference:
+    image: node:22-alpine
+    profiles: [reference]
+    command: ["node", "/scripts/seed-reference.mjs"]
+    volumes: [../../scripts:/scripts:ro]
+    environment:
+      BROKER_ADMIN_URL: http://federation-broker:8091
+      BROKER_ADMIN_TOKEN: ${BROKER_ADMIN_TOKEN}
+      REFERENCE_TA_URL: http://trust-anchor.localhost:8000
+      REFERENCE_SPID_OP: http://trust-anchor.localhost:8000/oidc/op
+      REFERENCE_CIE_OP: http://cie-provider.localhost:8002/oidc/op
 
   # ---------------------------------------------- one-shot dev seeding
   seed:

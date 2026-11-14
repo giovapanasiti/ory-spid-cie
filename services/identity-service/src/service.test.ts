@@ -64,6 +64,8 @@ before(async () => {
   const u = new URL(DSN);
   u.pathname = "/" + dbName;
   pool = new pg.Pool({ connectionString: u.toString(), max: 20 });
+  // DROP DATABASE ... WITH (FORCE) in after() may terminate idle clients; same handling as main.ts.
+  pool.on("error", () => {});
   await pool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
   await migrate(pool, join(here, "..", "migrations"), 1);
 });

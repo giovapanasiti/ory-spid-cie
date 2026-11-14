@@ -17,13 +17,14 @@ party or a prior gate), **NOT STARTED**.
 | Suite | Command | Result recorded (2026-11-14) | Scope |
 |---|---|---|---|
 | Go unit + protocol integration | `make test-go` | all pass | `fedjose` (sign/verify, alg none, HS256 confusion, missing kid, JWE, CSR), `oidcfed` policy, `sim` trust chains (valid, rogue, tampered, unknown, wrong pinned key, expired, alg allow-list), `server` end-to-end federation flows incl. 15 rejection scenarios, browser binding, open redirect, client auth, concurrent binding |
-| TypeScript unit + identity-service DB integration | `make test-ts` | 30 pass | auth-sdk, demo-api, login-consent policy/claims, shared (XSS, CSRF, sealing, LoA, audit scrubbing), UI, RBAC matrix. The 6 identity-service DB tests are **skipped** unless `TEST_DATABASE_URL` is set (not set by `make test-ts`); their execution is not recorded |
+| TypeScript unit + identity-service DB integration | `make test-ts` | 30 pass (5 consecutive runs) | auth-sdk, demo-api, login-consent policy/claims, shared (XSS, CSRF, sealing, LoA, audit scrubbing), UI, RBAC matrix, 7 identity-service DB tests (`make test-ts` starts the test database) |
 | Live security smoke | `scripts/security-smoke.sh` | 14/14 PASS | admin ports not exposed, headers/CSP, broker open redirect, token auth, forged state, EC format, Hydra redirect URI, demo API missing/alg-none token, admin POST without session |
 | End-to-end (Playwright) | `make test-e2e` | 10/10 pass | see criteria 2–14 |
+| End-to-end against the REFERENCE TEST federation | `make reference-up`, `make test-e2e-reference` | 2/2 pass | SPID and CIE logins through the official reference implementation demo OPs (`italia/spid-cie-oidc-django`), with two documented test-only adjustments of the reference containers ([`../federation/reference-federation.md`](../federation/reference-federation.md)). Interoperability evidence, not conformance |
 | Helm | `scripts/k8s-validate.sh` | pass | lint, template, kubeconform (default + staging), guards |
 | Dependency / vuln scanners | `make test-security` (govulncheck, npm audit), `security.yml` | results **not recorded** in this checklist | — |
 | CI workflows | `.github/workflows/*.yml` | **never run on GitHub** | — |
-| Official SPID/CIE conformance | — | **not run** | — |
+| Official SPID/CIE conformance | — | **not run** | `demo.spid.gov.it` is SAML only; the AgID OIDC validator and CIE pre-production need a public URL and onboarding |
 
 ## 2. Acceptance criteria — technically complete for local development
 
@@ -34,11 +35,11 @@ party or a prior gate), **NOT STARTED**.
 | 3 | Hydra issues valid OAuth2/OIDC tokens | COMPLETE | e2e: code flow validated by `openid-client` in demo-web, refresh rotation, client credentials |
 | 4 | Demo application authenticates through Hydra | COMPLETE | `apps/demo-web`; e2e password and SPID flows |
 | 5 | Login/consent integrates Hydra and Kratos | COMPLETE | `apps/login-consent`; `policy.test.ts`; e2e flows incl. consent and logout |
-| 6 | SPID authentication works against a local federation test environment | COMPLETE (local simulator only) | e2e "SPID login (substantial)…", "SPID cancellation…", "invalid ID token signature…"; Go `TestFederationFlows` |
-| 7 | CIE authentication works against a local federation test environment | COMPLETE (local simulator only) | e2e "step-up: high assurance…" (CIE), "CIE with insufficient level is rejected"; Go "CIE success with iss parameter". CIE ACR values UNVERIFIED ([`../federation/cie.md`](../federation/cie.md)) |
+| 6 | SPID authentication works against a local federation test environment | COMPLETE (local simulator and local reference implementation) | e2e "SPID login (substantial)…", "SPID cancellation…", "invalid ID token signature…"; Go `TestFederationFlows` |
+| 7 | CIE authentication works against a local federation test environment | COMPLETE (local simulator and local reference implementation) | e2e "step-up: high assurance…" (CIE), "CIE with insufficient level is rejected"; Go "CIE success with iss parameter". CIE ACR values UNVERIFIED ([`../federation/cie.md`](../federation/cie.md)) |
 | 8 | Federation trust validation is exercised by automated tests | COMPLETE | `internal/sim/chain_test.go`, `internal/oidcfed/policy_test.go`, flow tests "untrusted issuer", "tampered metadata" |
 | 9 | User identities are created correctly | COMPLETE | e2e SPID test checks federated identity + verified attributes; Kratos schema; `federated.jsonnet` |
-| 10 | Account linking is secure | PARTIAL | Unique constraint, conditional bind, fail-closed assurance and concurrency are implemented and covered by Go test "concurrent bind…" and identity-service DB tests (execution not recorded). Kratos settings-link and duplicate-credential flows are **not covered by automated tests**; unlink reconciliation is lazy; unlinked rows block re-linking elsewhere ([`../security/account-linking.md`](../security/account-linking.md)) |
+| 10 | Account linking is secure | PARTIAL | Unique constraint, conditional bind, fail-closed assurance and concurrency are implemented and covered by Go test "concurrent bind…" and the identity-service DB tests (concurrent linking, re-link after unlink). Kratos settings-link and duplicate-credential flows are **not covered by automated tests** (the duplicate-email flow was observed manually on 2026-11-14 after an entity ID change); unlink reconciliation is lazy ([`../security/account-linking.md`](../security/account-linking.md)) |
 | 11 | Authentication assurance information is preserved | COMPLETE | `federated_acr`, `loa`, `amr`, `auth_time` in tokens; `session_assurance`; e2e step-up; `auth-sdk.test.ts` |
 | 12 | Protected APIs validate tokens | COMPLETE | `packages/auth-sdk`, `services/demo-api/src/app.test.ts`, smoke tests, e2e |
 | 13 | Logout and revocation work as designed | COMPLETE | e2e logout, refresh-token revocation by demo-web, client-credentials revocation + introspection; upstream access token revoked by the broker (no SPID/CIE single logout by design) |

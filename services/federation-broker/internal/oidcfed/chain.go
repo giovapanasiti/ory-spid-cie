@@ -371,6 +371,14 @@ func (r *Resolver) verifyTrustMarks(ctx context.Context, chain *TrustChain) {
 	leaf := chain.Leaf()
 	taEC := chain.Statements[len(chain.Statements)-1]
 	for _, ref := range leaf.TrustMarks {
+		// An entity may belong to several federations (several authority_hints). A trust mark
+		// issued by ANOTHER pinned trust anchor belongs to that federation: it is neither
+		// verified nor an error in this chain, so requirements such as require_op_trust_mark
+		// are still evaluated only against the trust anchor of this chain.
+		var peek TrustMarkClaims
+		if err := fedjose.UnverifiedClaims(ref.TrustMark, &peek); err == nil && peek.Iss != taEC.Sub && r.anchor(peek.Iss) != nil {
+			continue
+		}
 		tm, err := r.VerifyTrustMark(ctx, ref.TrustMark, leaf.Sub, taEC)
 		if err != nil {
 			chain.TrustMarkErrors = append(chain.TrustMarkErrors, fmt.Sprintf("%s: %v", ref.Type(), err))

@@ -15,7 +15,7 @@ Questo repository contiene una piattaforma di gestione delle identità e degli a
 5. [Avvio rapido](#5-avvio-rapido)
 6. [Un giro guidato](#6-un-giro-guidato)
 7. [Console di amministrazione e configurazione SPID/CIE](#7-console-di-amministrazione-e-configurazione-spidcie)
-8. [La federazione di test locale](#8-la-federazione-di-test-locale)
+8. [Le federazioni di test](#8-le-federazioni-di-test)
 9. [Integrare un'applicazione o un'API](#9-integrare-unapplicazione-o-unapi)
 10. [Sicurezza](#10-sicurezza)
 11. [Test](#11-test)
@@ -25,6 +25,7 @@ Questo repository contiene una piattaforma di gestione delle identità e degli a
 15. [Cosa manca](#15-cosa-manca)
 16. [Documentazione](#16-documentazione)
 17. [Procedure ENPAM e responsabilità](#17-procedure-enpam-e-responsabilità)
+18. [Registro delle modifiche](#18-registro-delle-modifiche)
 
 ## 1. Cosa fa la piattaforma
 
@@ -186,6 +187,8 @@ Il comando genera `.env` con segreti casuali di sviluppo, compila il codice Type
 | http://localhost:3200 | area personale |
 | http://localhost:3100 | console di amministrazione |
 | http://localhost:8070 | federazione di test locale (SPID/CIE simulati) |
+| http://broker.localhost:8090 | broker SPID/CIE (endpoint pubblici ed entity configuration) |
+| http://trust-anchor.localhost:8000, http://cie-provider.localhost:8002 | federazione di riferimento, solo dopo `make reference-up` |
 | http://localhost:8025 | Mailpit, per leggere le email di verifica e recupero |
 | http://localhost:5600 | API demo |
 
@@ -276,7 +279,11 @@ Il log di audit si filtra per tipo, attore, esito e correlation ID. Gli eventi n
 
 ![Eventi di audit](docs/images/20-admin-audit.png)
 
-## 8. La federazione di test locale
+## 8. Le federazioni di test
+
+In locale il broker può parlare con due federazioni di test, anche insieme. Nessuna delle due vale come prova di conformità.
+
+### 8.1 Il simulatore `fedsim`
 
 `fedsim` simula un trust anchor, due IdP SPID e un OP CIE. Firma davvero con chiavi reali, cifra davvero la UserInfo e costruisce trust chain vere. Serve a provare il broker senza contattare la federazione reale.
 
@@ -298,6 +305,39 @@ Oltre agli OP validi ci sono due OP pensati per essere rifiutati: un *Rogue OP* 
 | Replay del `jti` | rifiutato |
 | UserInfo non cifrata | rifiutata |
 | Parametro `iss` errato nella redirect | rifiutato |
+
+### 8.2 La federazione di riferimento di Developers Italia
+
+`fedsim` è stato scritto insieme al broker, quindi i test che passano contro di lui dicono solo che i due pezzi sono d'accordo tra loro. Per provare il broker contro codice scritto da altri c'è un profilo opzionale che avvia i progetti demo dell'implementazione di riferimento ufficiale, [`italia/spid-cie-oidc-django`](https://github.com/italia/spid-cie-oidc-django): un trust anchor con un OP SPID e un OP CIE.
+
+```bash
+make reference-up          # avvia i container, registra il broker sul trust anchor, configura la fiducia
+make test-e2e-reference    # login SPID e CIE contro gli OP di riferimento
+make reference-down
+```
+
+Dopo `make reference-up` il selettore SPID mostra anche *SPID OP di riferimento* e la CIE offre *CIE OP di riferimento*. Sull'OP si entra con l'utente demo pubblico `user` / `oidcuser` e poi si accetta il consenso.
+
+| Pagina di login dell'OP SPID di riferimento | Consenso al rilascio degli attributi |
+|---|---|
+| ![Pagina di login dell'OP SPID di riferimento](docs/images/21-reference-spid-op-login.png) | ![Consenso dell'OP SPID di riferimento](docs/images/22-reference-spid-op-consent.png) |
+
+Gli indirizzi usano nomi `*.localhost` (`trust-anchor.localhost:8000`, `cie-provider.localhost:8002`, `broker.localhost:8090`). Il browser li risolve su 127.0.0.1 e dentro la rete Docker sono alias dei container, quindi non serve modificare `/etc/hosts`.
+
+Il collegamento ha portato alla luce quattro differenze rispetto al nostro broker:
+
+| Cosa è emerso | Cosa abbiamo fatto |
+|---|---|
+| La UserInfo firmata dall'OP di riferimento non contiene `iss` e `aud`, che la specifica SPID/CIE OIDC richiede (`userinfo_endpoint.rst`). Il broker la rifiuta. | Il broker resta rigoroso. Nel solo container di test una patch aggiunge i claim mancanti a una copia della libreria. |
+| L'utente demo ha un codice fiscale di 15 caratteri, quindi non valido. Il broker lo scarta e il login fallisce per attributi mancanti. | Nel solo container di test il dato viene sostituito con un codice fiscale sintetico ben formato. |
+| L'OP rifiuta una `redirect_uri` il cui host non compare nel `client_id`. | URL pubblico ed entity ID del broker spostati su `broker.localhost`. |
+| Con due federazioni attive l'auto-verifica segnalava come errore il trust mark dell'altra federazione. | Corretto nel broker, con un test dedicato. |
+
+Cambiare l'entity ID ha anche mostrato un effetto da ricordare in produzione: gli OP emettono un `sub` diverso per ogni RP, quindi un nuovo entity ID scollega tutti gli utenti dai loro account. I dettagli sono in [`docs/federation/reference-federation.md`](docs/federation/reference-federation.md).
+
+### 8.3 E l'ambiente demo di AgID?
+
+`demo.spid.gov.it` supporta solo SAML 2.0, mentre la piattaforma implementa SPID con OpenID Connect Federation. Il validator OIDC di AgID e la pre-produzione CIE richiedono un URL pubblico e l'onboarding dell'ente: sono passi organizzativi descritti in [`docs/federation/onboarding.md`](docs/federation/onboarding.md).
 
 ## 9. Integrare un'applicazione o un'API
 
@@ -361,14 +401,15 @@ Il modello delle minacce, con i rischi residui, è in [`docs/security/threat-mod
 | Suite | Comando | Ultimo risultato registrato (2026-11-14, locale) |
 |---|---|---|
 | Go, unit e integrazione del protocollo, con race detector | `make test-go` | tutti superati, inclusi 15 scenari di attacco al broker |
-| TypeScript, unit e integrazione su PostgreSQL | `make test-ts` | 30 superati |
+| TypeScript, unit e integrazione su PostgreSQL | `make test-ts` | 30 superati, in 5 esecuzioni consecutive |
 | Lint e typecheck | `make lint`, `make typecheck` | nessun errore |
 | Controlli di sicurezza sullo stack avviato | `scripts/security-smoke.sh` | 14 su 14 superati |
 | End-to-end nel browser (Playwright) | `make test-e2e` | 10 su 10 superati |
+| End-to-end contro la federazione di riferimento | `make test-e2e-reference` | 2 su 2 superati (SPID e CIE, con le due modifiche di test descritte nella sezione 8.2) |
 | Vulnerabilità Go | `govulncheck ./...` | nessuna |
 | Dipendenze npm di produzione | `npm audit --omit=dev` | 0 vulnerabilità |
 | Chart Helm | `make k8s-validate` | superato (validazione statica) |
-| Conformità ufficiale SPID/CIE | | **non eseguita** |
+| Conformità ufficiale SPID/CIE | | **non eseguita** (`demo.spid.gov.it` è solo SAML) |
 
 I test end-to-end coprono login con password via Hydra, login SPID, login CIE con step-up al livello alto, rifiuto di un livello insufficiente, annullamento, firma falsificata, token machine-to-machine con revoca e console di amministrazione.
 
@@ -422,6 +463,8 @@ Guide: [`docs/deployment/kubernetes.md`](docs/deployment/kubernetes.md), [`docs/
 | `make test-security` | test di attacco al protocollo, smoke test, govulncheck, npm audit |
 | `make lint` / `make fmt` / `make typecheck` / `make coverage` | qualità del codice |
 | `make k8s-validate` | lint e validazione del chart Helm |
+| `make reference-up` / `make reference-down` | avvia / ferma la federazione di riferimento di Developers Italia |
+| `make test-e2e-reference` | test Playwright contro la federazione di riferimento |
 | `make logs` / `make ps` | log e stato dei container |
 
 ## 15. Cosa manca
@@ -433,7 +476,12 @@ Passi esterni, elencati in [`BLOCKERS.md`](BLOCKERS.md):
 - test di conformità ufficiali;
 - valutazione del DPO sul trattamento del codice fiscale (base giuridica, DPIA, conservazione);
 - revisione di sicurezza indipendente;
-- installazione del chart su un cluster di staging.
+- installazione del chart su un cluster di staging;
+- test contro gli ambienti OIDC ufficiali: il validator OIDC di AgID e la pre-produzione CIE richiedono un URL pubblico raggiungibile da internet e l'onboarding dell'ente.
+
+Da decidere:
+
+- segnalare agli autori di `italia/spid-cie-oidc-django` che il loro OP firma la UserInfo senza `iss` e `aud`, e che l'utente demo ha un codice fiscale non valido (sezione 8.2). La segnalazione è un'azione esterna e va decisa da ENPAM.
 
 Limiti noti del codice:
 
@@ -458,6 +506,7 @@ Lo stato aggiornato è in [`PROGRESS.md`](PROGRESS.md); le decisioni prese sono 
 | Profilo SPID | [`docs/federation/spid.md`](docs/federation/spid.md) |
 | Profilo CIE | [`docs/federation/cie.md`](docs/federation/cie.md) |
 | Onboarding nella federazione | [`docs/federation/onboarding.md`](docs/federation/onboarding.md) |
+| Federazione di riferimento (Developers Italia) | [`docs/federation/reference-federation.md`](docs/federation/reference-federation.md) |
 | Modello delle minacce | [`docs/security/threat-model.md`](docs/security/threat-model.md) |
 | Livelli di garanzia e step-up | [`docs/security/assurance-levels.md`](docs/security/assurance-levels.md) |
 | Collegamento account e minimizzazione dei dati | [`docs/security/account-linking.md`](docs/security/account-linking.md) |
@@ -476,3 +525,37 @@ I documenti in `docs/` sono in inglese.
 Il lavoro su questo repository segue le **Linee Guida AI** ENPAM, la **Procedura di Sviluppo Sicuro** e il **Change Management**. Parte del codice e della documentazione è stata prodotta con l'assistenza di un'AI: ogni modifica richiede revisione umana e test indipendenti. Approvazione, accettazione del rischio e rilascio restano decisioni delle persone responsabili. Gli eventi di sicurezza seguono la procedura ENPAM di **Incident Management**.
 
 `fedsim` è uno strumento di sviluppo. Il fatto che i test passino contro di esso non dimostra la conformità a SPID o CIE.
+
+## 18. Registro delle modifiche
+
+### 2026-11-14: federazione di riferimento
+
+| Modifica | Dove |
+|---|---|
+| Profilo compose opzionale `reference` con trust anchor, OP SPID e OP CIE dell'implementazione di riferimento `italia/spid-cie-oidc-django`, immagine bloccata per digest | `infrastructure/docker/docker-compose.yml`, `infrastructure/reference-federation/` |
+| Registrazione automatica degli RP del broker sul trust anchor di riferimento e configurazione della fiducia nel broker | `infrastructure/reference-federation/register_rp.py`, `scripts/seed-reference.mjs` |
+| Nuovi comandi `make reference-up`, `make reference-down`, `make test-e2e-reference` | `Makefile` |
+| Due test end-to-end contro gli OP di riferimento (SPID L2 con codice fiscale, CIE con step-up a `high`) | `tests/e2e/reference/` |
+| URL pubblico ed entity ID del broker spostati da `localhost:8090` e `federation-broker:8090` a `broker.localhost:8090` | compose, `config/federation/bootstrap.local.json`, `scripts/seed-dev.mjs` |
+| Correzione nel broker: con più federazioni attive, un trust mark emesso da un altro trust anchor configurato viene ignorato nella catena corrente invece di essere segnalato come errore | `services/federation-broker/internal/oidcfed/chain.go`, `trustmark_test.go` |
+| Correzione in identity-service e audit-service: gestione dell'evento `error` del pool PostgreSQL. Prima, un riavvio del database o una connessione chiusa dal server facevano terminare il processo; era anche la causa di un test TypeScript instabile | `services/*/src/main.ts`, `services/identity-service/src/service.test.ts` |
+| I test e2e scelgono l'OP dal selettore quando un profilo ha più provider | `tests/e2e/specs/helpers.ts` |
+| Documentazione della federazione di riferimento, dei suoi limiti e di ciò che è emerso | `docs/federation/reference-federation.md`, sezione 8.2 |
+| Avvertenza nel runbook: un nuovo entity ID cambia il `sub` pairwise di tutti gli utenti e li scollega dagli account | `docs/operations/runbook.md` |
+| Screenshot rigenerati, due nuovi per l'OP di riferimento | `docs/images/` |
+
+### Aggiornare uno stack locale avviato prima di questa modifica
+
+Chi aveva già lo stack in esecuzione deve:
+
+1. ricreare broker e simulatore, per il nuovo URL pubblico: `docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d federation-broker fedsim`;
+2. riavviare Kratos, che tiene in cache la discovery del broker con il vecchio host: `docker compose --env-file .env -f infrastructure/docker/docker-compose.yml restart kratos`;
+3. rilanciare `make seed`, che aggiorna entity ID e redirect URI nel database del broker e ottiene i nuovi trust mark;
+4. ricostruire le immagini con `make build` e riavviare con `make up`, per avere le correzioni di broker, identity-service e audit-service.
+
+Gli utenti di test creati nelle esecuzioni precedenti (email `@example.org`) ricevono ora un `sub` diverso dagli OP e la loro email esiste già, quindi Kratos propone il collegamento dell'account e alcuni test e2e falliscono. Su questo ambiente le 19 identità sintetiche sono state cancellate da Kratos e da identity-service. Altrove la via più semplice è `make clean` seguito da `make dev`, che cancella tutti i dati locali.
+
+### 2026-11-14: prima versione
+
+Piattaforma completa per lo sviluppo locale: Kratos, Hydra, broker SPID/CIE, servizi e applicazioni, console di amministrazione con configurazione della federazione, simulatore `fedsim`, chart Helm, workflow CI, documentazione e questo README.
+

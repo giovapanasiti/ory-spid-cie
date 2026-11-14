@@ -113,6 +113,10 @@ async function main() {
       : await call("POST", `${BROKER}/admin/trust-anchors`, body, brokerHeaders);
     if (r.status >= 300) throw new Error(`trust anchor ${profile}: ${r.status} ${JSON.stringify(r.data)}`);
     const cfg = (await call("GET", `${BROKER}/admin/profiles/${profile}`, undefined, brokerHeaders)).data.config;
+    // Local entity IDs use broker.localhost (same host as the redirect URI, see docker-compose.yml).
+    // Databases created before this change are migrated here.
+    cfg.entity_id = `http://broker.localhost:8090/rp/${profile}`;
+    cfg.redirect_uris = [`http://broker.localhost:8090/rp/${profile}/callback`];
     const tm = (await call("GET", `${FEDSIM}/ta/dev/trust-mark?sub=${encodeURIComponent(cfg.entity_id)}`)).data;
     cfg.trust_marks = [{ id: tm.id, trust_mark: tm.trust_mark }];
     cfg.enabled = true;

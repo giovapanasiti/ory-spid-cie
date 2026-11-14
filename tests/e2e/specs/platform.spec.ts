@@ -1,6 +1,6 @@
 import { test, expect, request } from "@playwright/test";
 import { URLS, dotenv } from "./env";
-import { chooseIdp, maybeConsent, opLogin } from "./helpers";
+import { chooseIdp, chooseIdpIfAsked, maybeConsent, opLogin } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -73,6 +73,7 @@ test("step-up: high assurance restricted to SPID/CIE and enforced by the API", a
   await expect(page.locator(".msg.warn")).toContainText("high");
   await expect(page.locator('input[name="password"]')).toHaveCount(0);
   await page.getByRole("button", { name: "Entra con CIE" }).click();
+  await chooseIdpIfAsked(page, /CIE Test OP \(locale\)/);
   await opLogin(page, { user: "u1", acr: "https://www.spid.gov.it/SpidL3" });
   await maybeConsent(page);
   await expect(page.locator("body")).toContainText("urn:iam:loa:high");
@@ -83,6 +84,7 @@ test("step-up: high assurance restricted to SPID/CIE and enforced by the API", a
 test("CIE with insufficient level is rejected (no silent downgrade)", async ({ page }) => {
   await page.goto(`${URLS.demo}/login?level=high`);
   await page.getByRole("button", { name: "Entra con CIE" }).click();
+  await chooseIdpIfAsked(page, /CIE Test OP \(locale\)/);
   await opLogin(page, { user: "u3", acr: "https://www.spid.gov.it/SpidL2" });
   await expect(page.locator("body")).toContainText(/livello di autenticazione ottenuto non è sufficiente|Insufficient/i);
 });
@@ -134,7 +136,7 @@ test("admin console: RBAC-protected federation administration (keys, certificate
   await expect(page.locator("body")).toContainText("trust chain valida");
 
   await page.goto(`${URLS.admin}/federation/profile/spid`);
-  await expect(page.locator('input[name="entity_id"]')).toHaveValue("http://federation-broker:8090/rp/spid");
+  await expect(page.locator('input[name="entity_id"]')).toHaveValue("http://broker.localhost:8090/rp/spid");
   await page.fill('input[name="client_name"]', "IAM Platform (dev e2e)");
   await page.getByRole("button", { name: "Salva profilo" }).click();
   await expect(page.locator(".msg.success")).toContainText("Profilo salvato");

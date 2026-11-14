@@ -73,3 +73,21 @@ test("admin console and federation UI", async ({ page }) => {
     await shot(page, name);
   }
 });
+
+test("reference federation (only when `make reference-up` is running)", async ({ page, request }) => {
+  const up = await request.get("http://trust-anchor.localhost:8000/.well-known/openid-federation").then((r) => r.ok()).catch(() => false);
+  test.skip(!up, "reference federation not running");
+  await page.goto(URLS.demo);
+  await page.getByRole("link", { name: "Accedi", exact: true }).click();
+  await page.getByRole("button", { name: "Accedi con SPID" }).click();
+  await page.getByRole("button", { name: /SPID OP di riferimento/ }).click();
+  await page.waitForURL(/trust-anchor\.localhost:8000\/oidc\/op/);
+  await page.waitForLoadState("networkidle");
+  await shot(page, "21-reference-spid-op-login");
+  await page.fill('input[name="username"]', "user");
+  await page.fill('input[name="password"]', "oidcuser");
+  await page.click("#submit");
+  await page.waitForSelector("#agree");
+  await page.waitForLoadState("networkidle");
+  await shot(page, "22-reference-spid-op-consent");
+});

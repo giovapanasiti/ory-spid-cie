@@ -82,6 +82,15 @@ certificate/chain expiry from `/admin/status`.
 
 ## 5. Common incidents
 
+### 5.0 Never change an RP entity ID casually
+
+SPID and CIE OPs issue pairwise subjects per RP. A new entity ID (for example a new host name) gives
+every user a new external subject: existing `identity_links` no longer match, returning users appear
+as new federated identities and Kratos starts its account-linking flow when the email already exists.
+Treat the production entity IDs as permanent; a change needs a migration plan, user communication and
+a Change Management record. (Observed locally on 2026-11-14 when the entity IDs moved to
+`broker.localhost`.)
+
 ### 5.1 An identity provider is unavailable
 
 Symptoms: users see "Il gestore dell'identità non è disponibile"; `outcome="provider_unavailable"`

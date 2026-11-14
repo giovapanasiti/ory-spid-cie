@@ -20,4 +20,7 @@ Operational decisions made during implementation (2026-11-14):
 - `form-action` CSP directive omitted on pages whose form POSTs start OAuth2 redirect chains (browsers enforce it on every redirect hop); other CSP directives remain strict.
 - `Referrer-Policy: same-origin` (not `no-referrer`) so browsers send a real `Origin` header used by CSRF checks.
 - Kratos public CORS enabled only for the login UI origin, required to load `webauthn.js` with SRI for passkeys.
+- Broker public URL and local entity IDs on `broker.localhost:8090` (resolves to loopback in browsers and to the broker through a compose network alias): reference OPs require the `redirect_uri` host inside the `client_id`.
+- Optional REFERENCE TEST federation from the official `italia/spid-cie-oidc-django` image (pinned digest), with two test-only adjustments documented in `docs/federation/reference-federation.md` (UserInfo `iss`/`aud` patch in the test OP, valid synthetic fiscal codes in the demo fixture). The broker keeps enforcing the specification.
+- `demo.spid.gov.it` not used: it is SAML 2.0 only.
 - Go toolchain pinned to go1.26.11 (go1.26.0 had 37 reachable stdlib vulnerabilities per govulncheck).

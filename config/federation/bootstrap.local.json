@@ -3,10 +3,10 @@
   "profiles": [
     {
       "profile": "spid", "enabled": false, "environment": "local",
-      "entity_id": "http://federation-broker:8090/rp/spid",
+      "entity_id": "http://broker.localhost:8090/rp/spid",
       "organization_name": "Ente di sviluppo (LOCALE)", "homepage_uri": "http://localhost:5580", "policy_uri": "http://localhost:5580/privacy",
       "logo_uri": "", "contacts": ["protocollo@pec.example.org"], "client_name": "IAM Platform (dev)",
-      "redirect_uris": ["http://localhost:8090/rp/spid/callback"],
+      "redirect_uris": ["http://broker.localhost:8090/rp/spid/callback"],
       "authority_hints": ["http://fedsim:8070/ta"], "trust_marks": [], "scopes": ["openid"],
       "requested_claims": {"userinfo": {"given_name": {"essential": true}, "family_name": {"essential": true}, "https://attributes.eid.gov.it/fiscal_number": {"essential": true}, "email": null, "birthdate": null}},
       "required_attributes": ["given_name", "family_name", "https://attributes.eid.gov.it/fiscal_number"],
@@ -21,10 +21,10 @@
     },
     {
       "profile": "cie", "enabled": false, "environment": "local",
-      "entity_id": "http://federation-broker:8090/rp/cie",
+      "entity_id": "http://broker.localhost:8090/rp/cie",
       "organization_name": "Ente di sviluppo (LOCALE)", "homepage_uri": "http://localhost:5580", "policy_uri": "http://localhost:5580/privacy",
       "logo_uri": "", "contacts": ["protocollo@pec.example.org"], "client_name": "IAM Platform (dev)",
-      "redirect_uris": ["http://localhost:8090/rp/cie/callback"],
+      "redirect_uris": ["http://broker.localhost:8090/rp/cie/callback"],
       "authority_hints": ["http://fedsim:8070/ta"], "trust_marks": [], "scopes": ["openid"],
       "requested_claims": {"userinfo": {"given_name": {"essential": true}, "family_name": {"essential": true}, "https://attributes.eid.gov.it/fiscal_number": {"essential": true}, "email": null, "birthdate": null}},
       "required_attributes": ["given_name", "family_name", "https://attributes.eid.gov.it/fiscal_number"],

@@ -17,6 +17,10 @@ const config = loadConfig(
 const here = dirname(fileURLToPath(import.meta.url));
 const log = createLogger("audit-service");
 const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: 10 });
+// An error on an idle client (database restart, failover, terminated connection) is emitted on
+// the pool; without a listener node-postgres crashes the process. The pool drops the client and
+// reconnects on the next query.
+pool.on("error", (err) => log.warn({ error: err.message }, "postgres idle client error"));
 
 function bearer(req: FastifyRequest, expected: string): boolean {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");

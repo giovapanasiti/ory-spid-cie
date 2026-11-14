@@ -5,7 +5,7 @@ GO_DIR := services/federation-broker
 TEST_PG := iam-test-pg
 TEST_DB_URL := postgres://test:test@localhost:55432/postgres?sslmode=disable
 
-.PHONY: help setup dev up build migrate seed down clean logs ps test test-db test-go test-ts test-e2e test-security lint fmt typecheck coverage helm-lint k8s-validate
+.PHONY: help setup dev up build migrate seed reference-up reference-down down clean logs ps test test-db test-go test-ts test-e2e test-e2e-reference test-security lint fmt typecheck coverage helm-lint k8s-validate
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-15s\033[0m %s\n",$$1,$$2}'
@@ -44,6 +44,15 @@ migrate: ## Apply all database migrations (Ory + services)
 seed: ## Seed OAuth2 clients, dev admin and LOCAL test federation trust
 	$(COMPOSE) --profile seed run --rm seed
 
+reference-up: ## Start the REFERENCE TEST federation (italia/spid-cie-oidc-django) and connect the broker to it
+	$(COMPOSE) --profile reference up -d --wait ref-ta ref-cie-op
+	$(COMPOSE) --profile reference exec -T -e PYTHONPATH=/work/pylib -w /work/federation_authority ref-ta python3 manage.py shell < infrastructure/reference-federation/register_rp.py
+	$(COMPOSE) --profile reference run --rm seed-reference
+
+reference-down: ## Stop the REFERENCE TEST federation containers (broker configuration is kept)
+	$(COMPOSE) --profile reference stop ref-ta ref-cie-op
+	$(COMPOSE) --profile reference rm -f ref-ta ref-cie-op
+
 down: ## Stop the stack (keeps volumes)
 	$(COMPOSE) down
 
@@ -75,6 +84,9 @@ coverage: test-db ## Coverage reports (coverage/)
 
 test-e2e: ## End-to-end browser tests against the running stack (run `make dev` first)
 	cd tests/e2e && npx playwright install chromium && npx playwright test
+
+test-e2e-reference: ## End-to-end tests against the REFERENCE TEST federation (run `make dev` and `make reference-up` first)
+	cd tests/e2e && npx playwright install chromium && npx playwright test -c reference.config.ts
 
 test-security: test-db ## Security suites: protocol attacks, token validation, CSRF, headers, dependency scans
 	cd $(GO_DIR) && TEST_DATABASE_URL="$(TEST_DB_URL)" go test -count=1 -run 'TestFederationFlows|TestTrustChain|TestRejects|TestRequires' ./...

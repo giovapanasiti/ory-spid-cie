@@ -48,7 +48,8 @@ make dev
 | http://localhost:8070 | LOCAL test federation (fedsim) |
 | http://localhost:8025 | Mailpit (verification / recovery emails) |
 | http://localhost:5600 | demo API |
-| http://localhost:4433, :4444, :8090 | Kratos public, Hydra public, broker public |
+| http://localhost:4433, :4444, http://broker.localhost:8090 | Kratos public, Hydra public, broker public |
+| http://trust-anchor.localhost:8000, http://cie-provider.localhost:8002 | REFERENCE TEST federation, only after `make reference-up` ([`../federation/reference-federation.md`](../federation/reference-federation.md)) |
 
 Try it: open the demo app → *Accedi* → *Accedi con SPID* → choose "SPID Test IdP (locale)" → pick a
 synthetic user and the scenario *Successo* in fedsim. Other fedsim scenarios inject failures
@@ -160,7 +161,7 @@ capabilities dropped (except Ory, Postgres, Mailpit, fedsim which use their imag
 |---|---|---|---|
 | `BROKER_ENV` | `development` or `production` (production refuses insecure settings, requires https public URL and secure cookies) | `production` | `development` |
 | `BROKER_LISTEN` / `BROKER_ADMIN_LISTEN` | listeners | `:8090` / `:8091` | defaults |
-| `BROKER_PUBLIC_URL` | browser-facing base URL (**required**) | — | `http://localhost:8090` |
+| `BROKER_PUBLIC_URL` | browser-facing base URL (**required**) | — | `http://broker.localhost:8090` (`*.localhost` resolves to loopback in browsers; network alias in compose) |
 | `BROKER_INTERNAL_URL` | base URL used by Kratos (facade issuer) | = public URL | `http://federation-broker:8090` |
 | `BROKER_DATABASE_URL` | PostgreSQL DSN (**required**) | — | `postgres://broker:…@postgres:5432/federation` |
 | `BROKER_SEAL_KEYS` | seal keys (**required**) | — | from `.env` |
