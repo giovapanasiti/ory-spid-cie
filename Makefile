@@ -5,21 +5,33 @@ GO_DIR := services/federation-broker
 TEST_PG := iam-test-pg
 TEST_DB_URL := postgres://test:test@localhost:55432/postgres?sslmode=disable
 
-.PHONY: help setup dev up build migrate seed reference-up reference-down down clean logs ps test test-db test-go test-ts test-e2e test-e2e-reference test-security lint fmt typecheck coverage helm-lint k8s-validate
+NODE_DEPS := node_modules/.package-lock.json
+
+.PHONY: help setup deps dev up build build-local migrate seed reference-up reference-down down clean logs ps test test-db test-go test-ts test-e2e test-e2e-reference test-security lint fmt typecheck coverage helm-lint k8s-validate
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-15s\033[0m %s\n",$$1,$$2}'
 
-setup: ## Install dependencies, generate .env and dev secrets
+setup: ## Check prerequisites, generate .env and dev secrets (only Docker, Bash and OpenSSL needed)
 	@scripts/setup.sh
+
+# Host toolchains (Node >= 22.13, Go 1.26) are needed only for tests, lint and local builds,
+# never for `make dev`: the container images compile everything inside Docker.
+$(NODE_DEPS): package-lock.json
+	@command -v npm >/dev/null || { echo "Node.js >= 22.13 is required for this target (not for make dev)" >&2; exit 1; }
 	npm ci --no-audit --no-fund
+
+deps: $(NODE_DEPS) ## Install host dependencies for tests and lint (Node >= 22.13, Go 1.26)
+	@command -v go >/dev/null || { echo "Go 1.26 is required for this target (not for make dev)" >&2; exit 1; }
 	cd $(GO_DIR) && go mod download
 
-build: ## Build TypeScript, Go binaries and container images
-	npm run build
-	cd $(GO_DIR) && go build ./...
+build: ## Build the container images (everything compiles inside Docker)
 	docker build -f infrastructure/docker/Dockerfile.node -t iam/node:dev .
 	$(COMPOSE) build federation-broker fedsim
+
+build-local: deps ## Compile TypeScript and Go on the host (developer check, not needed by make dev)
+	npm run build
+	cd $(GO_DIR) && go build ./...
 
 up: ## Start the stack (without rebuilding)
 	$(COMPOSE) up -d --wait
@@ -72,38 +84,38 @@ test-db:
 test-go: test-db ## Go unit + protocol integration tests (federation)
 	cd $(GO_DIR) && TEST_DATABASE_URL="$(TEST_DB_URL)" go test -race -count=1 ./...
 
-test-ts: test-db ## TypeScript unit + DB integration tests
+test-ts: test-db $(NODE_DEPS) ## TypeScript unit + DB integration tests
 	TEST_DATABASE_URL="$(TEST_DB_URL)" npm test
 
 test: test-go test-ts ## All unit and integration tests (no running stack required)
 
-coverage: test-db ## Coverage reports (coverage/)
+coverage: test-db $(NODE_DEPS) ## Coverage reports (coverage/)
 	mkdir -p coverage
 	cd $(GO_DIR) && TEST_DATABASE_URL="$(TEST_DB_URL)" go test -count=1 -coverpkg=./internal/... -coverprofile=../../coverage/go.out ./... && go tool cover -func=../../coverage/go.out | tail -1
 	TEST_DATABASE_URL="$(TEST_DB_URL)" npm run test:coverage
 
-test-e2e: ## End-to-end browser tests against the running stack (run `make dev` first)
+test-e2e: $(NODE_DEPS) ## End-to-end browser tests against the running stack (run `make dev` first)
 	cd tests/e2e && npx playwright install chromium && npx playwright test
 
-test-e2e-reference: ## End-to-end tests against the REFERENCE TEST federation (run `make dev` and `make reference-up` first)
+test-e2e-reference: $(NODE_DEPS) ## End-to-end tests against the REFERENCE TEST federation (run `make dev` and `make reference-up` first)
 	cd tests/e2e && npx playwright install chromium && npx playwright test -c reference.config.ts
 
-test-security: test-db ## Security suites: protocol attacks, token validation, CSRF, headers, dependency scans
+test-security: test-db $(NODE_DEPS) ## Security suites: protocol attacks, token validation, CSRF, headers, dependency scans
 	cd $(GO_DIR) && TEST_DATABASE_URL="$(TEST_DB_URL)" go test -count=1 -run 'TestFederationFlows|TestTrustChain|TestRejects|TestRequires' ./...
 	node --import tsx --test --test-reporter=spec packages/auth-sdk/src/*.test.ts services/demo-api/src/*.test.ts packages/shared/src/*.test.ts
 	@if curl -sf -o /dev/null http://localhost:4455/healthz; then scripts/security-smoke.sh; else echo "stack not running: skipped live security smoke tests"; fi
 	cd $(GO_DIR) && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	npm audit --omit=dev --audit-level=high
 
-lint: ## Lint and format checks (TS + Go)
+lint: $(NODE_DEPS) ## Lint and format checks (TS + Go)
 	npm run lint
 	cd $(GO_DIR) && test -z "$$(gofmt -l .)" && go vet ./...
 
-fmt: ## Format code
+fmt: $(NODE_DEPS) ## Format code
 	npm run format
 	cd $(GO_DIR) && gofmt -w .
 
-typecheck: ## TypeScript type check
+typecheck: $(NODE_DEPS) ## TypeScript type check
 	npm run build
 
 helm-lint: ## Lint and render the Helm chart

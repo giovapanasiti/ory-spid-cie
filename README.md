@@ -172,13 +172,13 @@ Se l'IdP restituisce un livello più basso di quello chiesto, il login fallisce.
 
 ## 5. Avvio rapido
 
-Requisiti: Docker con Compose v2, GNU Make, Bash, OpenSSL, Node.js 22.3 o successivo, Go 1.26.
+Per `make dev` servono solo Docker Engine 25 o successivo con Compose 2.20 o successivo, GNU Make, Bash e OpenSSL: TypeScript e Go vengono compilati dentro Docker. Node.js (22.13 o successivo, oppure 24) e Go 1.26 servono solo per test, lint e build locali, e `make deps` installa le relative dipendenze. Prima di partire `make dev` controlla Docker, la versione di Compose e le porte libere, e si ferma con un messaggio chiaro se qualcosa manca.
 
 ```bash
 make dev
 ```
 
-Il comando genera `.env` con segreti casuali di sviluppo, compila il codice TypeScript e Go, costruisce le immagini, avvia i 13 container e carica i dati iniziali: client OAuth2 di esempio, amministratore di sviluppo, trust anchor di test e trust mark locali.
+Il comando genera `.env` con segreti casuali di sviluppo, costruisce le immagini (dove si compilano TypeScript e Go), avvia i 13 container e carica i dati iniziali: client OAuth2 di esempio, amministratore di sviluppo, trust anchor di test e trust mark locali.
 
 | Indirizzo | Servizio |
 |---|---|
@@ -452,11 +452,13 @@ Guide: [`docs/deployment/kubernetes.md`](docs/deployment/kubernetes.md), [`docs/
 
 | Comando | Effetto |
 |---|---|
-| `make setup` | genera `.env` e i segreti di Ory, installa le dipendenze |
+| `make setup` | controlla i prerequisiti, genera `.env` e i segreti di Ory |
+| `make deps` | installa le dipendenze Node e Go sull'host, per test e lint |
 | `make dev` | setup, build, avvio e dati iniziali |
 | `make up` / `make down` | avvia / ferma lo stack |
 | `make clean` | ferma lo stack e **cancella i dati** |
-| `make build` | compila TypeScript e Go, costruisce le immagini |
+| `make build` | costruisce le immagini (TypeScript e Go si compilano dentro Docker) |
+| `make build-local` | compila TypeScript e Go sull'host, come verifica |
 | `make migrate` / `make seed` | applica le migrazioni / carica i dati iniziali |
 | `make test` | test Go e TypeScript |
 | `make test-e2e` | test Playwright sullo stack avviato |
@@ -527,6 +529,17 @@ Il lavoro su questo repository segue le **Linee Guida AI** ENPAM, la **Procedura
 `fedsim` è uno strumento di sviluppo. Il fatto che i test passino contro di esso non dimostra la conformità a SPID o CIE.
 
 ## 18. Registro delle modifiche
+
+### 2026-11-14: `make dev` su una macchina nuova
+
+| Modifica | Dove |
+|---|---|
+| `make dev` non richiede più Node.js e Go sull'host: `make setup` genera solo `.env` e i segreti, `make build` costruisce solo le immagini, che compilano TypeScript e Go dentro Docker | `Makefile` |
+| Nuovi comandi `make deps` (dipendenze host per test e lint, installate anche in automatico dai target che le usano) e `make build-local` (compilazione sull'host) | `Makefile` |
+| Controlli preliminari con messaggi chiari: Docker attivo, Docker Engine 25 o successivo, Compose 2.20 o successivo, porte libere | `scripts/setup.sh` |
+| Requisito Node.js corretto in `^22.13.0 \|\| >=24`: alcune dipendenze non supportano le versioni precedenti | `package.json` |
+
+Verificato su una copia pulita del repository, con Node.js e Go rimossi dal `PATH`: `make dev` termina correttamente e il seed va a buon fine.
 
 ### 2026-11-14: federazione di riferimento
 

@@ -9,11 +9,11 @@ through it says nothing about conformance with the real SPID/CIE federations.
 
 | Tool | Version | Used by |
 |---|---|---|
-| Docker Engine + Compose v2 | recent (healthchecks use `start_interval`; `up --wait` is used) | everything |
+| Docker Engine + Compose v2 | Engine ≥ 25 (healthchecks use `start_interval`), Compose ≥ 2.20; checked by `scripts/setup.sh` | everything |
 | GNU Make, Bash | — | `Makefile`, scripts |
 | OpenSSL | — | `scripts/setup.sh` secret generation |
-| Node.js | ≥ 22.3 (`package.json` `engines`) | `npm ci`, build, tests |
-| Go | 1.26 (`services/federation-broker/go.mod`) | `go mod download`, Go build/tests |
+| Node.js | `^22.13.0 \|\| >=24` (`package.json` `engines`) | tests, lint, `make build-local` only (not `make dev`) |
+| Go | 1.26 (`services/federation-broker/go.mod`) | Go tests, lint, `make build-local` only (not `make dev`) |
 | `jq` (optional) | — | examples in the docs |
 
 Free host ports (all bound to `127.0.0.1`): 3100, 3200, 4433, 4444, 4455, 5580, 5600, 8025, 8070, 8090;
@@ -60,8 +60,10 @@ synthetic user and the scenario *Successo* in fedsim. Other fedsim scenarios inj
 | Target | Description |
 |---|---|
 | `make help` | list targets |
-| `make setup` | generate `.env` + Ory overlay files, install npm and Go dependencies |
-| `make build` | build TypeScript, Go and container images |
+| `make setup` | preflight checks (Docker daemon, Engine ≥ 25, Compose ≥ 2.20, free ports), generate `.env` + Ory overlay files |
+| `make deps` | install host npm and Go dependencies (tests, lint) |
+| `make build` | build the container images (TypeScript and Go compile inside Docker) |
+| `make build-local` | compile TypeScript and Go on the host (developer check) |
 | `make up` | start the stack without rebuilding |
 | `make dev` | setup + build + up + seed |
 | `make migrate` | start Postgres and apply all migrations (Kratos, Hydra, broker, identity, audit) |
