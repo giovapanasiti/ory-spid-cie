@@ -438,6 +438,8 @@ app.get(
 
 Esempi completi con `curl`, compresi client credentials, revoca e introspection, sono in [`docs/operations/api-examples.md`](docs/operations/api-examples.md).
 
+Per un'applicazione Ruby on Rails esistente (accesso, dati SPID/CIE, collegamento degli utenti, step-up e logout) vedi [`docs/integration/rails.md`](docs/integration/rails.md).
+
 ## 10. Sicurezza
 
 Le misure principali, ognuna coperta da test automatici:
@@ -573,13 +575,14 @@ Lo stato aggiornato è in [`PROGRESS.md`](PROGRESS.md); le decisioni prese sono 
 | Collegamento account e minimizzazione dei dati | [`docs/security/account-linking.md`](docs/security/account-linking.md) |
 | Runbook operativo | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
 | Esempi di API | [`docs/operations/api-examples.md`](docs/operations/api-examples.md) |
+| Integrare un'applicazione Ruby on Rails (in italiano) | [`docs/integration/rails.md`](docs/integration/rails.md) |
 | Rotazione di chiavi e segreti | [`docs/operations/key-rotation.md`](docs/operations/key-rotation.md) |
 | Backup e disaster recovery | [`docs/operations/disaster-recovery.md`](docs/operations/disaster-recovery.md) |
 | Deploy locale (Docker) | [`docs/deployment/docker.md`](docs/deployment/docker.md) |
 | Deploy su Kubernetes (Helm) | [`docs/deployment/kubernetes.md`](docs/deployment/kubernetes.md) |
 | Checklist di prontezza | [`docs/compliance/readiness-checklist.md`](docs/compliance/readiness-checklist.md) |
 
-I documenti in `docs/` sono in inglese.
+I documenti in `docs/` sono in inglese, tranne la guida Rails.
 
 ## 17. Procedure ENPAM e responsabilità
 
